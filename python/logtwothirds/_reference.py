@@ -556,6 +556,14 @@ class BlockDS:
 
         while self._d0_blocks and not self._d0_blocks[0]:
             self._d0_blocks.pop(0)
+        # Drop emptied leading D1 blocks (and their bounds) so the next
+        # pull's prefix scan stays O(M); the paper's Delete step removes a
+        # D1 block's upper bound as soon as the block becomes empty
+        # (Lemma 3.3 proof, "Delete"). Pruning lazily at pull keeps the
+        # same amortized charge. The last block (bound B) always stays.
+        while len(self._d1_blocks) > 1 and not self._d1_blocks[0]:
+            self._d1_blocks.pop(0)
+            self._d1_bounds.pop(0)
 
         x = self._min_value()
         return [k for k, _v in smallest], x

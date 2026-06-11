@@ -168,10 +168,16 @@ the lemma states the pair as `(S', x)`. Pick one order in the implementation and
   return them with `x` = the minimum value remaining in `D` (found in `O(M)`: by the
   inter-block invariant the remaining minimum lies in the first non-empty block of `D0` or of
   `D1`).
-- Derived invariant at the BMSSP call sites (useful for testing): the value stored in `D` for
-  key `v` always equals the current `d̂[v]` (every Insert/BatchPrepend happens immediately
-  after `d̂[v]` is set to that value, and the keep-min rule discards stale larger values;
-  candidate values strictly below the current batch range are impossible — see Lemma 3.10).
+- Derived *near*-invariant at the BMSSP call sites (useful for testing): the value stored in
+  `D` for key `v` equals the `d̂[v]` current at the moment of the Insert/BatchPrepend, and the
+  keep-min rule discards stale larger values whenever an update passes through this `D`.
+  **Correction (audit):** it is *not* true that the stored value always equals the current
+  `d̂[v]`: `d̂[v]` can be improved by a relaxation deep inside a descendant recursive call
+  without that update ever reaching this `D`'s Insert (the re-relaxation of Remark 3.4 then
+  fails both bucket tests at line 17/19 because the new value lies below `B'_i`). Such a key
+  is already settled when later pulled; see QUESTIONS.md item 3 and AUDIT.md finding F3 —
+  the paper's proofs of Lemmas 3.6/3.7/3.10 implicitly assume stored = current, which is the
+  gap the implementation's settled-vertex filter closes.
 
 ### 3.3 Costs as used inside BMSSP (Remark 3.5)
 
