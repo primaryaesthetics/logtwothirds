@@ -1,0 +1,18 @@
+[package]
+name = "logtwothirds"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+
+[lib]
+name = "_logtwothirds"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
+numpy = "0.23"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

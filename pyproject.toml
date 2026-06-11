@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "logtwothirds"
+version = "0.1.0"
+description = "Fast single-source shortest paths with a Rust core (PyO3 + maturin)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "logtwothirds authors" }]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = ["numpy>=1.21"]
+
+[project.optional-dependencies]
+test = ["pytest", "scipy"]
+bench = ["scipy"]
+
+[tool.maturin]
+# The Rust extension module is `logtwothirds._logtwothirds`; the pure-Python package
+# lives under python/logtwothirds and is the public import surface.
+python-source = "python"
+module-name = "logtwothirds._logtwothirds"
+features = ["pyo3/extension-module"]

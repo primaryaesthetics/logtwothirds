@@ -1,0 +1,9 @@
+/target
+/.venv
+__pycache__/
+*.pyc
+*.so
+*.pyd
+.pytest_cache/
+python/logtwothirds/*.so
+python/logtwothirds/*.pyd

@@ -1,0 +1,5 @@
+# Optimize the native extension for the host CPU. SciPy ships a generic
+# binary; building logtwothirds for the local microarchitecture is a fair and
+# meaningful optimization for a from-source pip install via maturin.
+[build]
+rustflags = ["-C", "target-cpu=native"]
