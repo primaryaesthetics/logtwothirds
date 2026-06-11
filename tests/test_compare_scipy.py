@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.sparse.csgraph import dijkstra as scipy_dijkstra
 
-from conftest import random_graph
+from .conftest import random_graph
 from logtwothirds import shortest_paths
 
 
