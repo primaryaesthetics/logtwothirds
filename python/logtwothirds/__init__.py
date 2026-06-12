@@ -80,7 +80,9 @@ def shortest_paths(
     source:
         Source vertex index.
     method:
-        Algorithm to use. Currently only ``"dijkstra"`` is supported.
+        Algorithm to use: ``"dijkstra"`` (default) or ``"bmssp"`` (the
+        Duan–Mao–Mao–Shu–Yin O(m log^(2/3) n) algorithm, run on the
+        constant-degree transform of the graph).
 
     Returns
     -------
@@ -97,12 +99,14 @@ def shortest_paths(
     IndexError
         If ``source`` is out of range.
     """
-    if method != "dijkstra":
+    if method not in ("dijkstra", "bmssp"):
         raise ValueError(
-            f"unknown method {method!r}; supported methods: 'dijkstra'"
+            f"unknown method {method!r}; supported methods: 'dijkstra', 'bmssp'"
         )
 
     indptr, indices, weights = _as_csr(graph)
     source = int(source)
 
+    if method == "bmssp":
+        return _logtwothirds.bmssp(indptr, indices, weights, source)
     return _logtwothirds.dijkstra(indptr, indices, weights, source)

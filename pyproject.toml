@@ -25,4 +25,4 @@ bench = ["scipy"]
 # lives under python/logtwothirds and is the public import surface.
 python-source = "python"
 module-name = "logtwothirds._logtwothirds"
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "python"]

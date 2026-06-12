@@ -6,13 +6,30 @@ rust-version = "1.74"
 
 [lib]
 name = "_logtwothirds"
-crate-type = ["cdylib"]
+# rlib so `cargo test` / integration tests can link the pure-Rust core without
+# a Python interpreter; cdylib for the maturin-built extension module.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# The PyO3 bindings are gated so that plain `cargo test`/`cargo clippy` never
+# need to link libpython. maturin builds with `--features python`.
+python = ["dep:pyo3", "dep:numpy"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
-numpy = "0.23"
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"], optional = true }
+numpy = { version = "0.23", optional = true }
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+# The differential / property tests run BMSSP on graphs with up to 10^6 edges;
+# unoptimized debug builds make that needlessly slow. Keep debug assertions on
+# (they mirror the reference's `__debug__` checks) but optimize.
+[profile.test]
+opt-level = 2
+
+[profile.dev]
+opt-level = 2
