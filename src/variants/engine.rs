@@ -23,6 +23,86 @@ use crate::bmssp::{compute_params, transform_to_constant_degree, BmsspError, Csr
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::collections::BinaryHeap;
 
+/// Engine invariant checks: `debug_assert!` in normal builds, hard `assert!`
+/// when built with `--features verify`. Release hot loops carry no
+/// instrumentation unless that feature is on.
+macro_rules! verify_assert {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "verify")]
+        {
+            assert!($($arg)*);
+        }
+        #[cfg(not(feature = "verify"))]
+        {
+            debug_assert!($($arg)*);
+        }
+    }};
+}
+
+/// Wall-clock seconds per engine phase. Populated only under
+/// `--features phase-timer` (all-zero otherwise); phases are non-overlapping
+/// leaves, so `total - sum(phases)` is the recursion bookkeeping.
+#[derive(Default, Debug, Clone)]
+pub struct EnginePhases {
+    /// Constant-degree transform (zero when `Config::transform` is false).
+    pub transform: f64,
+    /// FindPivots (Algorithm 1), including its relaxations.
+    pub find_pivots: f64,
+    /// Paper BaseCase (Algorithm 2, singleton + k+1 truncation).
+    pub base_case: f64,
+    /// Bounded multi-source Dijkstra oracle (`hybrid_*` config).
+    pub dijkstra_oracle: f64,
+    /// `DQueue::pull`.
+    pub q_pull: f64,
+    /// The Algorithm 3 edge-relaxation loop, including `DQueue::insert`s.
+    pub relax_loop: f64,
+    /// `DQueue::batch_prepend`.
+    pub q_batch_prepend: f64,
+    /// Distance extraction + predecessor recovery.
+    pub finalize: f64,
+}
+
+/// Engine operation counters; incremented only under
+/// `--features phase-timer` (all-zero otherwise).
+#[derive(Default, Debug, Clone)]
+pub struct EngineCounters {
+    pub edge_scans: u64,
+    pub relaxations: u64,
+    pub q_inserts: u64,
+    pub q_pulls: u64,
+    pub q_pulled_keys: u64,
+    pub q_prepend_items: u64,
+    pub oracle_calls: u64,
+    pub oracle_settled: u64,
+    pub findpivots_calls: u64,
+    pub basecase_calls: u64,
+    pub bmssp_calls: u64,
+}
+
+/// Time `$e` into `$st.phase.$field` under `phase-timer`; just `$e` otherwise.
+macro_rules! phase {
+    ($st:expr, $field:ident, $e:expr) => {{
+        #[cfg(feature = "phase-timer")]
+        let __phase_t0 = std::time::Instant::now();
+        let __phase_r = $e;
+        #[cfg(feature = "phase-timer")]
+        {
+            $st.phase.$field += __phase_t0.elapsed().as_secs_f64();
+        }
+        __phase_r
+    }};
+}
+
+/// Add `$d` to counter `$field` under `phase-timer`; no-op otherwise.
+macro_rules! count {
+    ($st:expr, $field:ident, $d:expr) => {{
+        #[cfg(feature = "phase-timer")]
+        {
+            $st.cnt.$field += $d as u64;
+        }
+    }};
+}
+
 /// Queue contract of Lemma 3.3 as the recursion uses it. `BlockDs` satisfies
 /// it with the paper's amortized bounds; simpler structures may satisfy the
 /// *semantic* contract with worse bounds (documented per variant).
@@ -100,6 +180,12 @@ pub struct VariantRun {
     pub t: usize,
     pub levels: usize,
     pub n_inner: usize,
+    /// Per-phase wall clock (all zeros unless built with `phase-timer`).
+    pub phase: EnginePhases,
+    /// Operation counters (all zeros unless built with `phase-timer`).
+    pub cnt: EngineCounters,
+    /// Total wall clock of the run (zero unless built with `phase-timer`).
+    pub total_seconds: f64,
 }
 
 #[derive(Default)]
@@ -120,6 +206,8 @@ struct Engine<'g, Q: DQueue> {
     settled: Vec<bool>,
     rng: SplitMix64,
     scratch: HeapScratch,
+    phase: EnginePhases,
+    cnt: EngineCounters,
     _q: std::marker::PhantomData<Q>,
 }
 
@@ -141,6 +229,8 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
             settled: vec![false; n],
             rng: SplitMix64::new(seed),
             scratch: HeapScratch::default(),
+            phase: EnginePhases::default(),
+            cnt: EngineCounters::default(),
             _q: std::marker::PhantomData,
         }
     }
@@ -375,6 +465,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         for &v in &u0 {
             self.settle(v);
         }
+        count!(self, oracle_settled, u0.len());
         self.scratch = HeapScratch { heap, best, in_u0 };
         (b, u0)
     }
@@ -390,6 +481,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         heap: &mut BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
     ) {
         let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+        count!(self, edge_scans, end - start);
         for e in start..end {
             let v = self.g.indices[e];
             let w = self.g.weights[e];
@@ -422,17 +514,21 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
 
     /// BMSSP (Algorithm 3), with the configured oracle switch.
     fn bmssp(&mut self, l: usize, b: Key, s: &[u32]) -> (Key, Vec<u32>) {
+        count!(self, bmssp_calls, 1);
         let use_dijkstra = (l as i32) <= self.cfg.hybrid_max_level
             || (self.cfg.hybrid_frontier > 0 && s.len() <= self.cfg.hybrid_frontier);
         if use_dijkstra {
-            return self.dijkstra_base(b, s);
+            count!(self, oracle_calls, 1);
+            return phase!(self, dijkstra_oracle, self.dijkstra_base(b, s));
         }
         if l == 0 {
-            return self.base_case(b, s);
+            count!(self, basecase_calls, 1);
+            return phase!(self, base_case, self.base_case(b, s));
         }
 
         let (k, t) = (self.k, self.t);
-        let (p, w_order) = self.find_pivots(b, s);
+        count!(self, findpivots_calls, 1);
+        let (p, w_order) = phase!(self, find_pivots, self.find_pivots(b, s));
 
         let shift = (l - 1) * t;
         let m_cap = if shift >= 63 {
@@ -461,8 +557,10 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         };
 
         while (u_order.len() as u128) < bound_cap && !d.is_empty() {
-            let (si, bi) = d.pull(&mut self.rng);
-            debug_assert!(!si.is_empty());
+            count!(self, q_pulls, 1);
+            let (si, bi) = phase!(self, q_pull, d.pull(&mut self.rng));
+            count!(self, q_pulled_keys, si.len());
+            verify_assert!(!si.is_empty());
 
             // Settled-vertex filter (AUDIT.md F3): keys whose label was
             // finalized by a sibling call are dropped, not recursed on.
@@ -483,16 +581,21 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
             }
             bp_last = bp_i;
 
+            #[cfg(feature = "phase-timer")]
+            let __relax_t0 = std::time::Instant::now();
             let mut kk: Vec<(u32, Key)> = Vec::new();
             for &u in &ui {
                 let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+                count!(self, edge_scans, end - start);
                 for e in start..end {
                     let v = self.g.indices[e];
                     let w = self.g.weights[e];
                     let passed = self.try_relax(u, v, w);
                     if passed {
+                        count!(self, relaxations, 1);
                         let vkey = self.key(v);
                         if bi <= vkey && vkey < b {
+                            count!(self, q_inserts, 1);
                             d.insert(v, vkey, &mut self.rng);
                         } else if bp_i <= vkey && vkey < bi {
                             kk.push((v, vkey));
@@ -508,8 +611,13 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                     prepend.push((x, kx));
                 }
             }
+            #[cfg(feature = "phase-timer")]
+            {
+                self.phase.relax_loop += __relax_t0.elapsed().as_secs_f64();
+            }
             if !prepend.is_empty() {
-                d.batch_prepend(&prepend, &mut self.rng);
+                count!(self, q_prepend_items, prepend.len());
+                phase!(self, q_batch_prepend, d.batch_prepend(&prepend, &mut self.rng));
             }
         }
 
@@ -580,38 +688,71 @@ pub fn run<Q: DQueue>(
         }
     }
 
-    if cfg.transform {
-        let tr = transform_to_constant_degree(g, source);
+    #[cfg(feature = "phase-timer")]
+    let __total_t0 = std::time::Instant::now();
+    #[allow(unused_mut)]
+    let mut run = if cfg.transform {
+        let mut eng_phase = EnginePhases::default();
+        let tr = phase!(
+            EngineHolder { phase: &mut eng_phase },
+            transform,
+            transform_to_constant_degree(g, source)
+        );
         let (k, t, levels) = compute_params(tr.g2.n, cfg.kt_override);
         let mut eng = Engine::<Q>::new(&tr.g2, tr.source2, k, t, seed, cfg);
+        eng.phase = eng_phase;
         eng.bmssp(levels, KEY_INF, &[tr.source2]);
-        let dist: Vec<f64> = (0..g.n).map(|v| eng.dhat[tr.rep[v] as usize]).collect();
-        let pred =
-            recover_pred_transformed(&eng.pred, &eng.dhat, &tr.rep, &tr.owner, g.n, source);
-        Ok(VariantRun {
+        let (dist, pred) = phase!(eng, finalize, {
+            let dist: Vec<f64> = (0..g.n).map(|v| eng.dhat[tr.rep[v] as usize]).collect();
+            let pred =
+                recover_pred_transformed(&eng.pred, &eng.dhat, &tr.rep, &tr.owner, g.n, source);
+            (dist, pred)
+        });
+        VariantRun {
             dist,
             pred,
             k,
             t,
             levels,
             n_inner: tr.g2.n,
-        })
+            phase: eng.phase,
+            cnt: eng.cnt,
+            total_seconds: 0.0,
+        }
     } else {
         let (k, t, levels) = compute_params(g.n, cfg.kt_override);
         let mut eng = Engine::<Q>::new(g, source as u32, k, t, seed, cfg);
         eng.bmssp(levels, KEY_INF, &[source as u32]);
-        let pred: Vec<i32> = eng
-            .pred
-            .iter()
-            .map(|&p| if p < 0 { -1 } else { p as i32 })
-            .collect();
-        Ok(VariantRun {
+        let pred: Vec<i32> = phase!(
+            eng,
+            finalize,
+            eng.pred
+                .iter()
+                .map(|&p| if p < 0 { -1 } else { p as i32 })
+                .collect()
+        );
+        VariantRun {
             dist: eng.dhat,
             pred,
             k,
             t,
             levels,
             n_inner: g.n,
-        })
+            phase: eng.phase,
+            cnt: eng.cnt,
+            total_seconds: 0.0,
+        }
+    };
+    #[cfg(feature = "phase-timer")]
+    {
+        run.total_seconds = __total_t0.elapsed().as_secs_f64();
     }
+    Ok(run)
+}
+
+/// Adapter so the `phase!` macro (which writes `$st.phase.$field`) can time
+/// code that runs before an [`Engine`] exists.
+#[cfg(feature = "phase-timer")]
+struct EngineHolder<'a> {
+    phase: &'a mut EnginePhases,
 }

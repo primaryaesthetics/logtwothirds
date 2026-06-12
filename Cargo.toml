@@ -17,8 +17,13 @@ default = []
 python = ["dep:pyo3", "dep:numpy"]
 # Wall-clock phase attribution inside BMSSP (find_pivots / base_case / block
 # DS / transform). Zero overhead when off; results are unchanged when on.
-# Used by `examples/profile_phases.rs`.
+# Used by `examples/profile_phases.rs` (mainline) and
+# `examples/profile_fast.rs` (variants engine).
 phase-timer = []
+# Runtime invariant checks in the variants engine, compiled into release
+# builds (the same checks are debug_assert!s otherwise). Zero overhead when
+# off — release hot loops carry no instrumentation unless this is enabled.
+verify = []
 
 [dependencies]
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"], optional = true }
