@@ -188,11 +188,14 @@ pub struct VariantRun {
     pub total_seconds: f64,
 }
 
+/// Reused buffers for the two heap oracles. The former `best` map is gone:
+/// every value it held was by construction `key(v)` for the *current*
+/// `dhat`/`hops` (both writers store exactly that), so the pop-time staleness
+/// check recomputes the key instead. Membership in the popped set (`in_u0`)
+/// lives in the engine's epoch-stamped `pop_stamp` array.
 #[derive(Default)]
 struct HeapScratch {
     heap: BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
-    best: HashMap<u32, Key>,
-    in_u0: HashSet<u32>,
 }
 
 struct Engine<'g, Q: DQueue> {
@@ -206,6 +209,10 @@ struct Engine<'g, Q: DQueue> {
     settled: Vec<bool>,
     rng: SplitMix64,
     scratch: HeapScratch,
+    /// Epoch-stamped "popped this oracle call" membership (replaces a per-
+    /// call hash set; never cleared, the epoch bump invalidates all stamps).
+    pop_stamp: Vec<u32>,
+    pop_epoch: u32,
     phase: EnginePhases,
     cnt: EngineCounters,
     _q: std::marker::PhantomData<Q>,
@@ -229,6 +236,8 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
             settled: vec![false; n],
             rng: SplitMix64::new(seed),
             scratch: HeapScratch::default(),
+            pop_stamp: vec![0; n],
+            pop_epoch: 0,
             phase: EnginePhases::default(),
             cnt: EngineCounters::default(),
             _q: std::marker::PhantomData,
@@ -383,29 +392,25 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let k = self.k;
 
         let mut u0: Vec<u32> = vec![x];
-        let HeapScratch {
-            mut heap,
-            mut best,
-            mut in_u0,
-        } = std::mem::take(&mut self.scratch);
+        let mut heap = std::mem::take(&mut self.scratch.heap);
         heap.clear();
-        best.clear();
-        in_u0.clear();
-        in_u0.insert(x);
+        self.pop_epoch += 1;
+        let epoch = self.pop_epoch;
+        self.pop_stamp[x as usize] = epoch;
 
         let kx0 = self.key(x);
-        best.insert(x, kx0);
         heap.push(std::cmp::Reverse((kx0, x)));
 
         while !heap.is_empty() && u0.len() < k + 1 {
             let std::cmp::Reverse((kx, u)) = heap.pop().unwrap();
-            if best.get(&u) != Some(&kx) {
-                continue;
+            if kx != self.key(u) {
+                continue; // stale: u's label improved after this push
             }
-            if in_u0.insert(u) {
+            if self.pop_stamp[u as usize] != epoch {
+                self.pop_stamp[u as usize] = epoch;
                 u0.push(u);
             }
-            self.relax_bounded(u, b, &mut best, &mut heap);
+            self.relax_bounded(u, b, &mut heap);
         }
 
         let (bp, u_out) = if u0.len() <= k {
@@ -423,7 +428,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         for &v in &u_out {
             self.settle(v);
         }
-        self.scratch = HeapScratch { heap, best, in_u0 };
+        self.scratch.heap = heap;
         (bp, u_out)
     }
 
@@ -437,36 +442,32 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
     /// labels that U = T_<B(B'=B)(S) never contains.
     fn dijkstra_base(&mut self, b: Key, s: &[u32]) -> (Key, Vec<u32>) {
         let mut u0: Vec<u32> = Vec::new();
-        let HeapScratch {
-            mut heap,
-            mut best,
-            mut in_u0,
-        } = std::mem::take(&mut self.scratch);
+        let mut heap = std::mem::take(&mut self.scratch.heap);
         heap.clear();
-        best.clear();
-        in_u0.clear();
+        self.pop_epoch += 1;
+        let epoch = self.pop_epoch;
 
         for &x in s {
             let kx = self.key(x);
-            best.insert(x, kx);
             heap.push(std::cmp::Reverse((kx, x)));
         }
 
         while let Some(std::cmp::Reverse((kx, u))) = heap.pop() {
-            if best.get(&u) != Some(&kx) {
-                continue;
+            if kx != self.key(u) {
+                continue; // stale: u's label improved after this push
             }
-            if in_u0.insert(u) {
+            if self.pop_stamp[u as usize] != epoch {
+                self.pop_stamp[u as usize] = epoch;
                 u0.push(u);
             }
-            self.relax_bounded(u, b, &mut best, &mut heap);
+            self.relax_bounded(u, b, &mut heap);
         }
 
         for &v in &u0 {
             self.settle(v);
         }
         count!(self, oracle_settled, u0.len());
-        self.scratch = HeapScratch { heap, best, in_u0 };
+        self.scratch.heap = heap;
         (b, u0)
     }
 
@@ -477,7 +478,6 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         &mut self,
         u: u32,
         b: Key,
-        best: &mut HashMap<u32, Key>,
         heap: &mut BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
     ) {
         let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
@@ -506,7 +506,6 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 self.dhat[v as usize] = cand_len;
                 self.hops[v as usize] = cand_hops;
                 self.pred[v as usize] = u as i64;
-                best.insert(v, vkey);
                 heap.push(std::cmp::Reverse((vkey, v)));
             }
         }
