@@ -1,0 +1,617 @@
+//! Shared recursion engine for the BMSSP variants (`src/variants/*`).
+//!
+//! This is a fork of the mainline `src/bmssp.rs` recursion, parameterized by
+//! [`Config`] and generic over the Lemma 3.3 queue ([`DQueue`]). The mainline
+//! stays untouched; variants only configure this engine. Unlike the mainline,
+//! the engine makes **no settlement-order promises** — the correctness bar
+//! for every variant is bit-exact distances vs Dijkstra (see
+//! `tests/variants_correctness.rs`), not the Step E settlement-order gate.
+//!
+//! Invariants preserved from the paper regardless of configuration:
+//! - the total order on labels (Assumption 2.1 via `Key`), the `<=`
+//!   relaxation rule (Remark 3.4), and the settled-vertex filter on pulled
+//!   batches (AUDIT.md F3);
+//! - FindPivots' covering property (Lemma 3.2): if only `j <= k`
+//!   Bellman-Ford rounds are run, the pivot tree-size threshold is lowered
+//!   to `j` so that every x in U-tilde is either complete in W or covered by
+//!   a pivot;
+//! - the BMSSP contract (Lemma 3.1/3.7): every child call returns a complete
+//!   `U = T_<B'(S)` with `B' <= B`, whatever oracle produced it.
+
+use crate::block_queue::{BlockDs, Key, SplitMix64, INF_INT, KEY_INF};
+use crate::bmssp::{compute_params, transform_to_constant_degree, BmsspError, Csr};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use std::collections::BinaryHeap;
+
+/// Queue contract of Lemma 3.3 as the recursion uses it. `BlockDs` satisfies
+/// it with the paper's amortized bounds; simpler structures may satisfy the
+/// *semantic* contract with worse bounds (documented per variant).
+pub trait DQueue {
+    fn new(m: usize, b: Key) -> Self;
+    fn insert(&mut self, key: u32, value: Key, rng: &mut SplitMix64);
+    /// Precondition: every value in `items` is smaller than every value in D.
+    fn batch_prepend(&mut self, items: &[(u32, Key)], rng: &mut SplitMix64);
+    /// Returns (keys of the <= M smallest values, separating bound).
+    fn pull(&mut self, rng: &mut SplitMix64) -> (Vec<u32>, Key);
+    fn is_empty(&self) -> bool;
+}
+
+impl DQueue for BlockDs {
+    fn new(m: usize, b: Key) -> Self {
+        BlockDs::new(m, b)
+    }
+    fn insert(&mut self, key: u32, value: Key, rng: &mut SplitMix64) {
+        BlockDs::insert(self, key, value, rng)
+    }
+    fn batch_prepend(&mut self, items: &[(u32, Key)], rng: &mut SplitMix64) {
+        BlockDs::batch_prepend(self, items, rng)
+    }
+    fn pull(&mut self, rng: &mut SplitMix64) -> (Vec<u32>, Key) {
+        BlockDs::pull(self, rng)
+    }
+    fn is_empty(&self) -> bool {
+        BlockDs::is_empty(self)
+    }
+}
+
+/// Engine configuration. Defaults reproduce the mainline algorithm (up to
+/// settlement order, which the engine does not track).
+#[derive(Clone, Copy, Debug)]
+pub struct Config {
+    /// Run on the constant-degree transform (paper Section 2) or directly on
+    /// the input graph. Correctness never needs the transform; only the
+    /// Lemma 3.2 / Remark 3.5 size accounting does.
+    pub transform: bool,
+    /// Forced (k, t); `None` = the paper's k = floor(log^(1/3) n),
+    /// t = floor(log^(2/3) n). Any k >= 1, t >= 1 is correct.
+    pub kt_override: Option<(usize, usize)>,
+    /// Replace the recursion below-or-at this level with a bounded
+    /// multi-source Dijkstra (no k+1 truncation). `-1` = never (paper
+    /// BaseCase at l = 0 only). `0` = Dijkstra base case, `1` = also swallow
+    /// level-1 calls, etc.
+    pub hybrid_max_level: i32,
+    /// Also switch to the Dijkstra oracle whenever the pulled frontier has
+    /// `|S| <= hybrid_frontier` (0 = disabled). Applies at any level.
+    pub hybrid_frontier: usize,
+    /// Stop FindPivots' Bellman-Ford early when the frontier stops shrinking
+    /// (round i produced a frontier no smaller than round i-1's, i >= 2).
+    /// The pivot tree-size threshold is lowered to the number of rounds
+    /// actually run, preserving Lemma 3.2's covering property.
+    pub lazy_pivots: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            transform: true,
+            kt_override: None,
+            hybrid_max_level: -1,
+            hybrid_frontier: 0,
+            lazy_pivots: false,
+        }
+    }
+}
+
+/// Output of a variant run (distances/predecessors on the original graph).
+pub struct VariantRun {
+    pub dist: Vec<f64>,
+    pub pred: Vec<i32>,
+    pub k: usize,
+    pub t: usize,
+    pub levels: usize,
+    pub n_inner: usize,
+}
+
+#[derive(Default)]
+struct HeapScratch {
+    heap: BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
+    best: HashMap<u32, Key>,
+    in_u0: HashSet<u32>,
+}
+
+struct Engine<'g, Q: DQueue> {
+    g: &'g Csr,
+    cfg: Config,
+    dhat: Vec<f64>,
+    hops: Vec<i64>,
+    pred: Vec<i64>,
+    k: usize,
+    t: usize,
+    settled: Vec<bool>,
+    rng: SplitMix64,
+    scratch: HeapScratch,
+    _q: std::marker::PhantomData<Q>,
+}
+
+impl<'g, Q: DQueue> Engine<'g, Q> {
+    fn new(g: &'g Csr, source: u32, k: usize, t: usize, seed: u64, cfg: Config) -> Self {
+        let n = g.n;
+        let mut dhat = vec![f64::INFINITY; n];
+        let mut hops = vec![INF_INT; n];
+        dhat[source as usize] = 0.0;
+        hops[source as usize] = 0;
+        Engine {
+            g,
+            cfg,
+            dhat,
+            hops,
+            pred: vec![-1; n],
+            k,
+            t,
+            settled: vec![false; n],
+            rng: SplitMix64::new(seed),
+            scratch: HeapScratch::default(),
+            _q: std::marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    fn key(&self, v: u32) -> Key {
+        Key {
+            len: self.dhat[v as usize],
+            hops: self.hops[v as usize],
+            id: v as i64,
+        }
+    }
+
+    /// The `<=` relaxation of Remark 3.4 (never gated on a bound).
+    #[inline]
+    fn try_relax(&mut self, u: u32, v: u32, w: f64) -> bool {
+        let cand_len = self.dhat[u as usize] + w;
+        let cand = Key {
+            len: cand_len,
+            hops: self.hops[u as usize] + 1,
+            id: u as i64,
+        };
+        let cur = Key {
+            len: self.dhat[v as usize],
+            hops: self.hops[v as usize],
+            id: self.pred[v as usize],
+        };
+        if cand <= cur {
+            self.dhat[v as usize] = cand_len;
+            self.hops[v as usize] = cand.hops;
+            self.pred[v as usize] = u as i64;
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    fn settle(&mut self, v: u32) {
+        self.settled[v as usize] = true;
+    }
+
+    /// FindPivots (Algorithm 1), with the optional lazy early stop.
+    /// Returns (P, W). Covering property (Lemma 3.2) holds with the pivot
+    /// threshold equal to the number of Bellman-Ford rounds actually run.
+    fn find_pivots(&mut self, b: Key, s: &[u32]) -> (Vec<u32>, Vec<u32>) {
+        let k = self.k;
+
+        let mut w_set: HashSet<u32> = s.iter().copied().collect();
+        let mut w_order: Vec<u32> = Vec::with_capacity(s.len());
+        {
+            let mut seen: HashSet<u32> =
+                HashSet::with_capacity_and_hasher(s.len(), Default::default());
+            for &x in s {
+                if seen.insert(x) {
+                    w_order.push(x);
+                }
+            }
+        }
+        let mut frontier: Vec<u32> = w_order.clone();
+        let mut rounds_done = 0usize;
+
+        for i in 1..=k {
+            let mut nf_set: HashSet<u32> = HashSet::default();
+            let mut next_frontier: Vec<u32> = Vec::new();
+            for &u in &frontier {
+                let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+                for e in start..end {
+                    let v = self.g.indices[e];
+                    let w = self.g.weights[e];
+                    let passed = self.try_relax(u, v, w);
+                    if passed && self.key(v) < b && nf_set.insert(v) {
+                        next_frontier.push(v);
+                    }
+                }
+            }
+            rounds_done = i;
+            for &v in &next_frontier {
+                if w_set.insert(v) {
+                    w_order.push(v);
+                }
+            }
+            if w_set.len() > k * s.len() {
+                // Early exit: P = S covers everything (Lemma 3.2 case 1).
+                return (s.to_vec(), w_order);
+            }
+            if next_frontier.is_empty() {
+                // Bellman-Ford converged below B: nothing left to relax.
+                break;
+            }
+            // Lazy stop: the frontier is not shrinking, so trees are still
+            // growing; cut the rounds and accept a lower pivot threshold.
+            if self.cfg.lazy_pivots && i >= 2 && i < k && next_frontier.len() >= frontier.len() {
+                break;
+            }
+            frontier = next_frontier;
+        }
+
+        // Tight forest F over W; pivot threshold = rounds actually run.
+        let threshold = rounds_done.max(1);
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::default();
+        let mut has_tight_parent: HashSet<u32> = HashSet::default();
+        for &v in &w_order {
+            let up = self.pred[v as usize];
+            if up >= 0 && w_set.contains(&(up as u32)) {
+                let u = up as u32;
+                let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+                for e in start..end {
+                    let vv = self.g.indices[e];
+                    let w = self.g.weights[e];
+                    #[allow(clippy::float_cmp)]
+                    let tight = vv == v
+                        && self.dhat[v as usize] == self.dhat[u as usize] + w
+                        && self.hops[v as usize] == self.hops[u as usize] + 1;
+                    if tight {
+                        children.entry(u).or_default().push(v);
+                        has_tight_parent.insert(v);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut p: Vec<u32> = Vec::new();
+        for &u in s {
+            if has_tight_parent.contains(&u) {
+                continue;
+            }
+            let mut size = 0usize;
+            let mut stack = vec![u];
+            while let Some(x) = stack.pop() {
+                size += 1;
+                if let Some(ch) = children.get(&x) {
+                    stack.extend_from_slice(ch);
+                }
+            }
+            if size >= threshold {
+                p.push(u);
+            }
+        }
+
+        (p, w_order)
+    }
+
+    /// Paper BaseCase (Algorithm 2): mini-Dijkstra from a singleton,
+    /// truncated at k+1 settled vertices.
+    fn base_case(&mut self, b: Key, s: &[u32]) -> (Key, Vec<u32>) {
+        debug_assert!(s.len() == 1);
+        let x = s[0];
+        let k = self.k;
+
+        let mut u0: Vec<u32> = vec![x];
+        let HeapScratch {
+            mut heap,
+            mut best,
+            mut in_u0,
+        } = std::mem::take(&mut self.scratch);
+        heap.clear();
+        best.clear();
+        in_u0.clear();
+        in_u0.insert(x);
+
+        let kx0 = self.key(x);
+        best.insert(x, kx0);
+        heap.push(std::cmp::Reverse((kx0, x)));
+
+        while !heap.is_empty() && u0.len() < k + 1 {
+            let std::cmp::Reverse((kx, u)) = heap.pop().unwrap();
+            if best.get(&u) != Some(&kx) {
+                continue;
+            }
+            if in_u0.insert(u) {
+                u0.push(u);
+            }
+            self.relax_bounded(u, b, &mut best, &mut heap);
+        }
+
+        let (bp, u_out) = if u0.len() <= k {
+            (b, u0)
+        } else {
+            let bp = u0.iter().map(|&v| self.key(v)).max().unwrap();
+            let filtered = u0
+                .iter()
+                .copied()
+                .filter(|&v| self.key(v) < bp)
+                .collect::<Vec<u32>>();
+            (bp, filtered)
+        };
+
+        for &v in &u_out {
+            self.settle(v);
+        }
+        self.scratch = HeapScratch { heap, best, in_u0 };
+        (bp, u_out)
+    }
+
+    /// Bounded multi-source Dijkstra: a valid BMSSP oracle for any
+    /// subproblem (returns B' = B and the complete U = T_<B(S)).
+    ///
+    /// Correctness: the precondition gives that every incomplete v with
+    /// d(v) < B has its shortest path through a complete y in S; y sits in
+    /// the heap at its true key, so the standard Dijkstra induction applies
+    /// to the offset multi-source run, with the bound B only suppressing
+    /// labels that U = T_<B(B'=B)(S) never contains.
+    fn dijkstra_base(&mut self, b: Key, s: &[u32]) -> (Key, Vec<u32>) {
+        let mut u0: Vec<u32> = Vec::new();
+        let HeapScratch {
+            mut heap,
+            mut best,
+            mut in_u0,
+        } = std::mem::take(&mut self.scratch);
+        heap.clear();
+        best.clear();
+        in_u0.clear();
+
+        for &x in s {
+            let kx = self.key(x);
+            best.insert(x, kx);
+            heap.push(std::cmp::Reverse((kx, x)));
+        }
+
+        while let Some(std::cmp::Reverse((kx, u))) = heap.pop() {
+            if best.get(&u) != Some(&kx) {
+                continue;
+            }
+            if in_u0.insert(u) {
+                u0.push(u);
+            }
+            self.relax_bounded(u, b, &mut best, &mut heap);
+        }
+
+        for &v in &u0 {
+            self.settle(v);
+        }
+        self.scratch = HeapScratch { heap, best, in_u0 };
+        (b, u0)
+    }
+
+    /// Shared relaxation step of the two heap oracles: BaseCase semantics,
+    /// i.e. the relaxation itself is gated by `vkey < B` (Algorithm 2 L8).
+    #[inline]
+    fn relax_bounded(
+        &mut self,
+        u: u32,
+        b: Key,
+        best: &mut HashMap<u32, Key>,
+        heap: &mut BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
+    ) {
+        let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+        for e in start..end {
+            let v = self.g.indices[e];
+            let w = self.g.weights[e];
+            let cand_len = self.dhat[u as usize] + w;
+            let cand_hops = self.hops[u as usize] + 1;
+            let cand = Key {
+                len: cand_len,
+                hops: cand_hops,
+                id: u as i64,
+            };
+            let cur = Key {
+                len: self.dhat[v as usize],
+                hops: self.hops[v as usize],
+                id: self.pred[v as usize],
+            };
+            let vkey = Key {
+                len: cand_len,
+                hops: cand_hops,
+                id: v as i64,
+            };
+            if cand <= cur && vkey < b {
+                self.dhat[v as usize] = cand_len;
+                self.hops[v as usize] = cand_hops;
+                self.pred[v as usize] = u as i64;
+                best.insert(v, vkey);
+                heap.push(std::cmp::Reverse((vkey, v)));
+            }
+        }
+    }
+
+    /// BMSSP (Algorithm 3), with the configured oracle switch.
+    fn bmssp(&mut self, l: usize, b: Key, s: &[u32]) -> (Key, Vec<u32>) {
+        let use_dijkstra = (l as i32) <= self.cfg.hybrid_max_level
+            || (self.cfg.hybrid_frontier > 0 && s.len() <= self.cfg.hybrid_frontier);
+        if use_dijkstra {
+            return self.dijkstra_base(b, s);
+        }
+        if l == 0 {
+            return self.base_case(b, s);
+        }
+
+        let (k, t) = (self.k, self.t);
+        let (p, w_order) = self.find_pivots(b, s);
+
+        let shift = (l - 1) * t;
+        let m_cap = if shift >= 63 {
+            self.g.n
+        } else {
+            std::cmp::min(1usize << shift, self.g.n)
+        }
+        .max(1);
+        let mut d = Q::new(m_cap, b);
+
+        for &x in &p {
+            let kx = self.key(x);
+            d.insert(x, kx, &mut self.rng);
+        }
+
+        let bp0 = p.iter().map(|&x| self.key(x)).min().unwrap_or(b);
+
+        let mut u_set: HashSet<u32> = HashSet::default();
+        let mut u_order: Vec<u32> = Vec::new();
+        let mut bp_last = bp0;
+        let lt = l * t;
+        let bound_cap: u128 = if lt >= 100 {
+            u128::MAX
+        } else {
+            (k as u128) << lt
+        };
+
+        while (u_order.len() as u128) < bound_cap && !d.is_empty() {
+            let (si, bi) = d.pull(&mut self.rng);
+            debug_assert!(!si.is_empty());
+
+            // Settled-vertex filter (AUDIT.md F3): keys whose label was
+            // finalized by a sibling call are dropped, not recursed on.
+            let si_fresh: Vec<u32> = si
+                .iter()
+                .copied()
+                .filter(|&x| !self.settled[x as usize])
+                .collect();
+            let (bp_i, ui) = if si_fresh.is_empty() {
+                (bi, Vec::new())
+            } else {
+                self.bmssp(l - 1, bi, &si_fresh)
+            };
+            for &x in &ui {
+                if u_set.insert(x) {
+                    u_order.push(x);
+                }
+            }
+            bp_last = bp_i;
+
+            let mut kk: Vec<(u32, Key)> = Vec::new();
+            for &u in &ui {
+                let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+                for e in start..end {
+                    let v = self.g.indices[e];
+                    let w = self.g.weights[e];
+                    let passed = self.try_relax(u, v, w);
+                    if passed {
+                        let vkey = self.key(v);
+                        if bi <= vkey && vkey < b {
+                            d.insert(v, vkey, &mut self.rng);
+                        } else if bp_i <= vkey && vkey < bi {
+                            kk.push((v, vkey));
+                        }
+                    }
+                }
+            }
+
+            let mut prepend = kk;
+            for &x in &si_fresh {
+                let kx = self.key(x);
+                if bp_i <= kx && kx < bi {
+                    prepend.push((x, kx));
+                }
+            }
+            if !prepend.is_empty() {
+                d.batch_prepend(&prepend, &mut self.rng);
+            }
+        }
+
+        let bp = std::cmp::min(bp_last, b);
+
+        let mut result_set = u_set;
+        let mut result_order = u_order;
+        for &x in &w_order {
+            if self.key(x) < bp && result_set.insert(x) {
+                result_order.push(x);
+                self.settle(x);
+            }
+        }
+
+        (bp, result_order)
+    }
+}
+
+/// Map transformed-graph predecessors back to the original graph (same walk
+/// as the mainline's `recover_pred`).
+fn recover_pred_transformed(
+    pred_t: &[i64],
+    dhat_t: &[f64],
+    rep: &[u32],
+    owner: &[u32],
+    n: usize,
+    source: usize,
+) -> Vec<i32> {
+    let mut pred = vec![-1i32; n];
+    for (v, pv) in pred.iter_mut().enumerate() {
+        if v == source {
+            continue;
+        }
+        let r = rep[v] as usize;
+        if !dhat_t[r].is_finite() {
+            continue;
+        }
+        let mut cur = r;
+        loop {
+            let p = pred_t[cur];
+            if p < 0 {
+                break;
+            }
+            let p = p as usize;
+            if owner[p] as usize != v {
+                *pv = owner[p] as i32;
+                break;
+            }
+            cur = p;
+        }
+    }
+    pred
+}
+
+/// Run the configured engine on `g` from `source`.
+pub fn run<Q: DQueue>(
+    g: &Csr,
+    source: usize,
+    seed: u64,
+    cfg: Config,
+) -> Result<VariantRun, BmsspError> {
+    if source >= g.n {
+        return Err(BmsspError::SourceOutOfRange);
+    }
+    for &w in &g.weights {
+        if w < 0.0 || !w.is_finite() {
+            return Err(BmsspError::BadWeight);
+        }
+    }
+
+    if cfg.transform {
+        let tr = transform_to_constant_degree(g, source);
+        let (k, t, levels) = compute_params(tr.g2.n, cfg.kt_override);
+        let mut eng = Engine::<Q>::new(&tr.g2, tr.source2, k, t, seed, cfg);
+        eng.bmssp(levels, KEY_INF, &[tr.source2]);
+        let dist: Vec<f64> = (0..g.n).map(|v| eng.dhat[tr.rep[v] as usize]).collect();
+        let pred =
+            recover_pred_transformed(&eng.pred, &eng.dhat, &tr.rep, &tr.owner, g.n, source);
+        Ok(VariantRun {
+            dist,
+            pred,
+            k,
+            t,
+            levels,
+            n_inner: tr.g2.n,
+        })
+    } else {
+        let (k, t, levels) = compute_params(g.n, cfg.kt_override);
+        let mut eng = Engine::<Q>::new(g, source as u32, k, t, seed, cfg);
+        eng.bmssp(levels, KEY_INF, &[source as u32]);
+        let pred: Vec<i32> = eng
+            .pred
+            .iter()
+            .map(|&p| if p < 0 { -1 } else { p as i32 })
+            .collect();
+        Ok(VariantRun {
+            dist: eng.dhat,
+            pred,
+            k,
+            t,
+            levels,
+            n_inner: g.n,
+        })
+    }
+}

@@ -1,0 +1,49 @@
+{
+ "meta": {
+  "date": "2026-06-12 15:16",
+  "runs": 1,
+  "warmup": 0,
+  "seeds": "random=0xc0ffee bmssp=0"
+ },
+ "results": [
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 14.533136200000627,
+    "min": 14.533136200000627,
+    "max": 14.533136200000627,
+    "runs": 1
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "bmssp-tuned",
+   "timing": {
+    "median": 242.6426062999999,
+    "min": 242.6426062999999,
+    "max": 242.6426062999999,
+    "runs": 1
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "bmssp-hybrid",
+   "timing": {
+    "median": 158.53534060000038,
+    "min": 158.53534060000038,
+    "max": 158.53534060000038,
+    "runs": 1
+   }
+  }
+ ]
+}

@@ -82,9 +82,12 @@ def shortest_paths(
     source:
         Source vertex index.
     method:
-        Algorithm to use: ``"dijkstra"`` (default) or ``"bmssp"`` (the
+        Algorithm to use: ``"dijkstra"`` (default), ``"bmssp"`` (the
         Duan–Mao–Mao–Shu–Yin O(m log^(2/3) n) algorithm, run on the
-        constant-degree transform of the graph).
+        constant-degree transform of the graph), or a research variant
+        ``"bmssp-<name>"`` with name in ``{"tuned", "hybrid", "simpleq",
+        "lazypiv", "notransform", "fast"}`` (see VARIANTS.md; distances are
+        verified bit-exact vs Dijkstra, settlement order is not pinned).
 
     Returns
     -------
@@ -101,9 +104,10 @@ def shortest_paths(
     IndexError
         If ``source`` is out of range.
     """
-    if method not in ("dijkstra", "bmssp"):
+    if method != "dijkstra" and method != "bmssp" and not method.startswith("bmssp-"):
         raise ValueError(
-            f"unknown method {method!r}; supported methods: 'dijkstra', 'bmssp'"
+            f"unknown method {method!r}; supported methods: 'dijkstra', "
+            "'bmssp', 'bmssp-<variant>'"
         )
 
     indptr, indices, weights = _as_csr(graph)
@@ -111,6 +115,12 @@ def shortest_paths(
 
     if method == "bmssp":
         return _logtwothirds.bmssp(indptr, indices, weights, source)
+    if method.startswith("bmssp-"):
+        # Research variants (src/variants/; see VARIANTS.md). Distances are
+        # verified bit-exact vs dijkstra; settlement order is not pinned.
+        return _logtwothirds.bmssp_variant(
+            indptr, indices, weights, source, method[len("bmssp-"):]
+        )
     return _logtwothirds.dijkstra(indptr, indices, weights, source)
 
 

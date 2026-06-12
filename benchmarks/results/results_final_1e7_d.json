@@ -1,0 +1,36 @@
+{
+ "meta": {
+  "date": "2026-06-12 15:29",
+  "runs": 1,
+  "warmup": 0,
+  "seeds": "random=0xc0ffee bmssp=0"
+ },
+ "results": [
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 14.623035599999639,
+    "min": 14.623035599999639,
+    "max": 14.623035599999639,
+    "runs": 1
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "bmssp-lazypiv",
+   "timing": {
+    "median": 372.4017623,
+    "min": 372.4017623,
+    "max": 372.4017623,
+    "runs": 1
+   }
+  }
+ ]
+}

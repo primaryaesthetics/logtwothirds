@@ -1,0 +1,218 @@
+{
+ "meta": {
+  "date": "2026-06-12 14:29",
+  "runs": 3,
+  "warmup": 1,
+  "seeds": "random=0xc0ffee bmssp=0"
+ },
+ "results": [
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.03257759999996779,
+    "min": 0.03162999999949534,
+    "max": 0.03913460000057967,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 1.5808967000002667,
+    "min": 1.5681954000001497,
+    "max": 1.7006115000003774,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "bmssp-tuned",
+   "timing": {
+    "median": 4.452200600000651,
+    "min": 4.438532099999975,
+    "max": 4.508087600000181,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "bmssp-hybrid",
+   "timing": {
+    "median": 0.8560827000001154,
+    "min": 0.7797934999998688,
+    "max": 0.8851404999995793,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "bmssp-simpleq",
+   "timing": {
+    "median": 1.3344499000004362,
+    "min": 1.3225943000006737,
+    "max": 1.390633500000149,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "bmssp-lazypiv",
+   "timing": {
+    "median": 1.6709963000002972,
+    "min": 1.6487777999991522,
+    "max": 1.689553899999737,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "bmssp-notransform",
+   "timing": {
+    "median": 0.1774249999998574,
+    "min": 0.1586395000003904,
+    "max": 0.1833864000000176,
+    "runs": 3
+   }
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "bmssp-fast",
+   "timing": {
+    "median": 0.1400628000001234,
+    "min": 0.13932269999986602,
+    "max": 0.18093260000023292,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.030434799999966344,
+    "min": 0.026007600000411912,
+    "max": 0.033474800000476534,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 1.7630630000003293,
+    "min": 1.7285664000000907,
+    "max": 1.774211799999648,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "bmssp-tuned",
+   "timing": {
+    "median": 1.484121899999991,
+    "min": 1.3634486999999353,
+    "max": 1.5386830999996164,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "bmssp-hybrid",
+   "timing": {
+    "median": 1.049924099999771,
+    "min": 1.0361828000004607,
+    "max": 1.1019839999999022,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "bmssp-simpleq",
+   "timing": {
+    "median": 1.2360073999998349,
+    "min": 1.2234286000002612,
+    "max": 1.2796933000008721,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "bmssp-lazypiv",
+   "timing": {
+    "median": 1.7496068000000378,
+    "min": 1.6936194999998406,
+    "max": 1.7992733000000953,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "bmssp-notransform",
+   "timing": {
+    "median": 0.393768199999613,
+    "min": 0.3765936999998303,
+    "max": 0.41706319999957486,
+    "runs": 3
+   }
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "bmssp-fast",
+   "timing": {
+    "median": 0.2813768000005439,
+    "min": 0.2560350000003382,
+    "max": 0.28393770000002405,
+    "runs": 3
+   }
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+{
+ "graph": "random1000000",
+ "variant": "tuned",
+ "rows": [
+  {
+   "k": 4,
+   "t": 8,
+   "seconds": 17.393255199999658,
+   "skipped_rest": false
+  },
+  {
+   "k": 4,
+   "t": 12,
+   "seconds": 15.407204600000114,
+   "skipped_rest": false
+  },
+  {
+   "k": 4,
+   "t": 16,
+   "seconds": 106.02683649999926,
+   "skipped_rest": true
+  },
+  {
+   "k": 8,
+   "t": 8,
+   "seconds": 16.890452799999366,
+   "skipped_rest": false
+  },
+  {
+   "k": 8,
+   "t": 12,
+   "seconds": 13.902098800000203,
+   "skipped_rest": false
+  },
+  {
+   "k": 8,
+   "t": 16,
+   "seconds": 80.52389179999955,
+   "skipped_rest": true
+  }
+ ]
+}

@@ -14,6 +14,7 @@ pub mod block_queue;
 pub mod bmssp;
 pub mod dijkstra;
 pub mod multi;
+pub mod variants;
 
 /// BMSSP makes tens of millions of small short-lived allocations per run;
 /// mimalloc serves them far faster than the default system heap (especially
@@ -215,6 +216,42 @@ mod python {
         ))
     }
 
+    /// Run a research variant of BMSSP (`src/variants/`); `variant` is the
+    /// name after the "bmssp-" prefix (e.g. "notransform"). `k`/`t` > 0
+    /// force the parameters (0 = the variant's default).
+    #[pyfunction]
+    #[pyo3(name = "bmssp_variant", signature = (indptr, indices, weights, source, variant, seed = 0, k = 0, t = 0))]
+    #[allow(clippy::too_many_arguments)]
+    fn bmssp_variant_py<'py>(
+        py: Python<'py>,
+        indptr: PyReadonlyArray1<'py, i64>,
+        indices: PyReadonlyArray1<'py, i32>,
+        weights: PyReadonlyArray1<'py, f64>,
+        source: i64,
+        variant: &str,
+        seed: u64,
+        k: usize,
+        t: usize,
+    ) -> PyResult<SsspResult<'py>> {
+        let indptr = indptr.as_slice()?;
+        let indices = indices.as_slice()?;
+        let weights = weights.as_slice()?;
+        let n = check_csr(indptr, indices, weights, source)?;
+        let g = to_owned_csr(indptr, indices, weights, n)?;
+        let kt = if k > 0 && t > 0 { Some((k, t)) } else { None };
+
+        let result = py.allow_threads(|| {
+            crate::variants::run_variant(variant, &g, source as usize, seed, kt)
+        });
+        match result.map_err(|e| map_bmssp_err(e, source, n))? {
+            Some(run) => Ok((run.dist.into_pyarray(py), run.pred.into_pyarray(py))),
+            None => Err(PyValueError::new_err(format!(
+                "unknown bmssp variant {variant:?}; known: {:?}",
+                crate::variants::VARIANT_NAMES
+            ))),
+        }
+    }
+
     fn map_multi_err(e: crate::multi::MultiError, n: usize) -> PyErr {
         match e {
             crate::multi::MultiError::SourceOutOfRange(s) => PyIndexError::new_err(format!(
@@ -323,6 +360,7 @@ mod python {
         m.add_function(wrap_pyfunction!(dijkstra_py, m)?)?;
         m.add_function(wrap_pyfunction!(bmssp_py, m)?)?;
         m.add_function(wrap_pyfunction!(bmssp_instrumented_py, m)?)?;
+        m.add_function(wrap_pyfunction!(bmssp_variant_py, m)?)?;
         m.add_function(wrap_pyfunction!(dijkstra_multisource_py, m)?)?;
         m.add_function(wrap_pyfunction!(bmssp_multisource_py, m)?)?;
         Ok(())
