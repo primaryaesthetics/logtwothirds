@@ -21,7 +21,6 @@
 use crate::block_queue::{BlockDs, Key, SplitMix64, INF_INT, KEY_INF};
 use crate::bmssp::{compute_params, transform_to_constant_degree, BmsspError, Csr};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
-use std::collections::BinaryHeap;
 
 /// Engine invariant checks: `debug_assert!` in normal builds, hard `assert!`
 /// when built with `--features verify`. Release hot loops carry no
@@ -195,7 +194,115 @@ pub struct VariantRun {
 /// lives in the engine's epoch-stamped `pop_stamp` array.
 #[derive(Default)]
 struct HeapScratch {
-    heap: BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
+    heap: KeyHeap,
+}
+
+/// Structure-of-arrays 4-ary min-heap over the oracle heap entries
+/// `(len, hops, vertex)`. Entries always satisfy `Key.id == vertex` (both
+/// writers push `key(v)` / `vkey` with `id = v`), so the id is not stored;
+/// the order is exactly `Key`'s: `total_cmp` on len, then hops, then vertex.
+/// Same layout idea as `dijkstra::Heap` — sifting reads the dense `lens`
+/// array first and touches `hops`/`vals` only on float ties.
+#[derive(Default)]
+struct KeyHeap {
+    lens: Vec<f64>,
+    hops: Vec<i64>,
+    vals: Vec<u32>,
+}
+
+impl KeyHeap {
+    /// Exactly `Key`'s order with `id == val` (u32 order == i64 order here).
+    #[inline(always)]
+    fn less(a: (f64, i64, u32), b: (f64, i64, u32)) -> bool {
+        match a.0.total_cmp(&b.0) {
+            std::cmp::Ordering::Less => true,
+            std::cmp::Ordering::Greater => false,
+            std::cmp::Ordering::Equal => (a.1, a.2) < (b.1, b.2),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.lens.clear();
+        self.hops.clear();
+        self.vals.clear();
+    }
+
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        self.lens.is_empty()
+    }
+
+    #[inline(always)]
+    fn entry(&self, i: usize) -> (f64, i64, u32) {
+        (self.lens[i], self.hops[i], self.vals[i])
+    }
+
+    #[inline(always)]
+    fn set(&mut self, i: usize, e: (f64, i64, u32)) {
+        self.lens[i] = e.0;
+        self.hops[i] = e.1;
+        self.vals[i] = e.2;
+    }
+
+    #[inline(always)]
+    fn push(&mut self, e: (f64, i64, u32)) {
+        let mut i = self.lens.len();
+        self.lens.push(e.0);
+        self.hops.push(e.1);
+        self.vals.push(e.2);
+        while i > 0 {
+            let parent = (i - 1) >> 2;
+            let pe = self.entry(parent);
+            if Self::less(e, pe) {
+                self.set(i, pe);
+                i = parent;
+            } else {
+                break;
+            }
+        }
+        self.set(i, e);
+    }
+
+    #[inline(always)]
+    fn pop(&mut self) -> Option<(f64, i64, u32)> {
+        let len = self.lens.len();
+        if len == 0 {
+            return None;
+        }
+        let min = self.entry(0);
+        let last = self.entry(len - 1);
+        self.lens.truncate(len - 1);
+        self.hops.truncate(len - 1);
+        self.vals.truncate(len - 1);
+        let n = len - 1;
+        if n > 0 {
+            let mut i = 0usize;
+            loop {
+                let first = 4 * i + 1;
+                if first >= n {
+                    break;
+                }
+                let last_child = std::cmp::min(first + 4, n);
+                let mut sm = first;
+                let mut sme = self.entry(first);
+                for c in first + 1..last_child {
+                    let ce = self.entry(c);
+                    if Self::less(ce, sme) {
+                        sm = c;
+                        sme = ce;
+                    }
+                }
+                if Self::less(sme, last) {
+                    self.set(i, sme);
+                    i = sm;
+                } else {
+                    break;
+                }
+            }
+            self.set(i, last);
+        }
+        Some(min)
+    }
 }
 
 struct Engine<'g, Q: DQueue> {
@@ -398,12 +505,13 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let epoch = self.pop_epoch;
         self.pop_stamp[x as usize] = epoch;
 
-        let kx0 = self.key(x);
-        heap.push(std::cmp::Reverse((kx0, x)));
+        heap.push((self.dhat[x as usize], self.hops[x as usize], x));
 
         while !heap.is_empty() && u0.len() < k + 1 {
-            let std::cmp::Reverse((kx, u)) = heap.pop().unwrap();
-            if kx != self.key(u) {
+            let (klen, khops, u) = heap.pop().unwrap();
+            if klen.total_cmp(&self.dhat[u as usize]) != std::cmp::Ordering::Equal
+                || khops != self.hops[u as usize]
+            {
                 continue; // stale: u's label improved after this push
             }
             if self.pop_stamp[u as usize] != epoch {
@@ -448,12 +556,13 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let epoch = self.pop_epoch;
 
         for &x in s {
-            let kx = self.key(x);
-            heap.push(std::cmp::Reverse((kx, x)));
+            heap.push((self.dhat[x as usize], self.hops[x as usize], x));
         }
 
-        while let Some(std::cmp::Reverse((kx, u))) = heap.pop() {
-            if kx != self.key(u) {
+        while let Some((klen, khops, u)) = heap.pop() {
+            if klen.total_cmp(&self.dhat[u as usize]) != std::cmp::Ordering::Equal
+                || khops != self.hops[u as usize]
+            {
                 continue; // stale: u's label improved after this push
             }
             if self.pop_stamp[u as usize] != epoch {
@@ -474,12 +583,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
     /// Shared relaxation step of the two heap oracles: BaseCase semantics,
     /// i.e. the relaxation itself is gated by `vkey < B` (Algorithm 2 L8).
     #[inline]
-    fn relax_bounded(
-        &mut self,
-        u: u32,
-        b: Key,
-        heap: &mut BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
-    ) {
+    fn relax_bounded(&mut self, u: u32, b: Key, heap: &mut KeyHeap) {
         let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
         count!(self, edge_scans, end - start);
         for e in start..end {
@@ -506,7 +610,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 self.dhat[v as usize] = cand_len;
                 self.hops[v as usize] = cand_hops;
                 self.pred[v as usize] = u as i64;
-                heap.push(std::cmp::Reverse((vkey, v)));
+                heap.push((cand_len, cand_hops, v));
             }
         }
     }
