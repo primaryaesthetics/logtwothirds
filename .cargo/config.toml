@@ -1,5 +1,9 @@
-# Optimize the native extension for the host CPU. SciPy ships a generic
-# binary; building logtwothirds for the local microarchitecture is a fair and
-# meaningful optimization for a from-source pip install via maturin.
-[build]
-rustflags = ["-C", "target-cpu=native"]
+# Release builds are PORTABLE by default: no -C target-cpu=native here, so a
+# wheel built on one machine runs on any x86-64 (the same guarantee SciPy and
+# rustworkx give). Hot paths that benefit from wider vectors should use
+# runtime feature detection instead of baking in the build host's ISA.
+#
+# To opt in to host-tuned codegen for a local experiment, set it explicitly:
+#   RUSTFLAGS="-C target-cpu=native" maturin develop --release
+# (or `$env:RUSTFLAGS = '-C target-cpu=native'` in PowerShell). Benchmark
+# numbers published in BENCHMARKS.md are measured WITHOUT it.

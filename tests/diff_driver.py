@@ -93,28 +93,44 @@ class OSet:
 
 
 def gen_diff_graph(seed: int):
-    """Draw-for-draw mirror of tests/common/mod.rs::gen_diff_graph."""
+    """Draw-for-draw mirror of tests/common/mod.rs::gen_diff_graph.
+
+    Seeds < 1000: the original acceptance-criterion distribution; seeds >=
+    1000: tie-heavy stress shapes (weights on an 8-value grid, denser).
+    """
     r = SplitMix64(seed ^ 0xD1FFE12E5EED5EED)
+    tie_heavy = seed >= 1000
     cls = seed % 4
-    if cls == 0:
-        n = 1 + r.next64() % 40
-    elif cls == 1:
-        n = 2 + r.next64() % 459
+    if tie_heavy:
+        if cls in (0, 1):
+            n = 2 + r.next64() % 120
+        else:
+            n = 50 + r.next64() % 1500
+        max_m = 6 * n
     else:
-        n = 500 + r.next64() % 4501
-    m = r.next64() % (3 * n + 1)
+        if cls == 0:
+            n = 1 + r.next64() % 40
+        elif cls == 1:
+            n = 2 + r.next64() % 459
+        else:
+            n = 500 + r.next64() % 4501
+        max_m = 3 * n
+    m = r.next64() % (max_m + 1)
     edges = []
     for _ in range(m):
         u = r.next64() % n
         v = r.next64() % n
-        if r.next64() % 20 == 0:
+        if tie_heavy:
+            w = (r.next64() % 8) / 8.0
+        elif r.next64() % 20 == 0:
             w = 0.0
         else:
             w = ((r.next64() % 1_000_000) + 1) / 1e6
         edges.append((u, v, w))
     source = r.next64() % n
     algo_seed = r.next64()
-    return n, edges, source, algo_seed
+    kt_override = (2, 2) if seed >= 2000 else None
+    return n, edges, source, algo_seed, kt_override
 
 
 def f64_bits(x: float) -> int:
@@ -138,7 +154,9 @@ def parse_results(path: Path, expected: int):
     i = 0
     while i < len(lines):
         assert lines[i].startswith("GRAPH "), lines[i]
-        seed = int(lines[i].split()[1])
+        head = lines[i].split()
+        seed = int(head[1])
+        kt = (int(head[3]), int(head[4])) if len(head) > 2 and head[2] == "KT" else None
         params = tuple(int(x) for x in lines[i + 1].split()[1:])
         dist = [int(x, 16) for x in lines[i + 2].split()[1:]]
         settle = []
@@ -146,7 +164,7 @@ def parse_results(path: Path, expected: int):
             v, b = tok.split(":")
             settle.append((int(v), int(b, 16)))
         assert lines[i + 4] == "END", lines[i + 4]
-        results[seed] = (params, dist, settle)
+        results[seed] = (kt, params, dist, settle)
         i += 5
     assert len(results) == expected, (len(results), expected)
     return results
@@ -180,6 +198,7 @@ def settle_context(label, log, idx, width=3):
 def main() -> int:
     results_path = Path(sys.argv[1])
     num_graphs = int(sys.argv[2])
+    base_seed = int(sys.argv[3]) if len(sys.argv) > 3 else 0
 
     ref = load_reference()
     ref.set = OSet  # pin set iteration order (see module docstring)
@@ -187,9 +206,28 @@ def main() -> int:
     rust = parse_results(results_path, num_graphs)
     failures = 0
 
-    for seed in range(num_graphs):
-        n, edges, source, algo_seed = gen_diff_graph(seed)
-        rust_params, rust_dist, rust_settle = rust[seed]
+    default_compute_params = ref.compute_params
+
+    def forced_params(fk, ft):
+        """Mirror of the test suite's `_small_params` monkeypatch shape: a
+        forced (k, t), L = max(1, ceil(log2(max(2, n)) / t))."""
+
+        def compute(n):
+            import math
+
+            log_n = max(1.0, math.log2(max(2, n)))
+            return fk, ft, max(1, math.ceil(log_n / ft))
+
+        return compute
+
+    for seed in range(base_seed, base_seed + num_graphs):
+        n, edges, source, algo_seed, kt_override = gen_diff_graph(seed)
+        rust_kt, rust_params, rust_dist, rust_settle = rust[seed]
+        assert rust_kt == kt_override, (seed, rust_kt, kt_override)
+
+        ref.compute_params = (
+            forced_params(*kt_override) if kt_override else default_compute_params
+        )
 
         g = ref.build_graph(n, edges)
         g2, _src2, _rep = ref.transform_to_constant_degree(g, source)

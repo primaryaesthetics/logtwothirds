@@ -28,6 +28,15 @@ fn num_graphs() -> u64 {
         .unwrap_or(200)
 }
 
+/// First seed (default 0). Seeds >= 1000 select tie-heavy stress shapes,
+/// >= 2000 additionally force (k, t) = (2, 2); see `common::gen_diff_graph`.
+fn base_seed() -> u64 {
+    std::env::var("LOGTWOTHIRDS_DIFF_BASE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
 fn find_python(manifest: &Path) -> Option<PathBuf> {
     if let Ok(p) = std::env::var("LOGTWOTHIRDS_PYTHON") {
         let p = PathBuf::from(p);
@@ -56,14 +65,18 @@ fn differential_vs_python_reference() {
     };
 
     let num_graphs = num_graphs();
+    let base_seed = base_seed();
     let mut out = String::new();
-    for seed in 0..num_graphs {
+    for seed in base_seed..base_seed + num_graphs {
         let g = common::gen_diff_graph(seed);
         let csr = build_csr(g.n, &g.edges);
-        let run = sssp_bmssp(&csr, g.source, g.algo_seed, None)
+        let run = sssp_bmssp(&csr, g.source, g.algo_seed, g.kt_override)
             .unwrap_or_else(|e| panic!("seed {seed}: bmssp failed: {e:?}"));
 
-        writeln!(out, "GRAPH {seed}").unwrap();
+        match g.kt_override {
+            Some((k, t)) => writeln!(out, "GRAPH {seed} KT {k} {t}").unwrap(),
+            None => writeln!(out, "GRAPH {seed}").unwrap(),
+        }
         writeln!(
             out,
             "PARAMS {} {} {} {}",
@@ -91,6 +104,7 @@ fn differential_vs_python_reference() {
         .arg(&driver)
         .arg(&results_path)
         .arg(num_graphs.to_string())
+        .arg(base_seed.to_string())
         .output()
         .expect("failed to spawn the Python differential driver");
 

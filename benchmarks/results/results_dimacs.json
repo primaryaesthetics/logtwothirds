@@ -1,0 +1,70 @@
+{
+ "meta": {
+  "date": "2026-06-12 13:43",
+  "machine": "Intel64 Family 6 Model 58 Stepping 9, GenuineIntel / Windows 11",
+  "python": "3.14.3",
+  "numpy/scipy/rustworkx": "2.4.6 / 1.17.1 / 0.17.1",
+  "runs": 5,
+  "warmup": 1,
+  "seeds": "random=0xc0ffee ba=0xba0bab bmssp=0",
+  "total wall time": "16 s"
+ },
+ "results": [
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.02574670000012702,
+    "min": 0.025056700000277488,
+    "max": 0.03387860000020737,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 1.7437896999999793,
+    "min": 1.6887369999999464,
+    "max": 1.7849519999999757,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.0422774999997273,
+    "min": 0.040079400000195164,
+    "max": 0.05551790000026813,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 0.1783968999998251,
+    "min": 0.13844479999988835,
+    "max": 0.18391430000019682,
+    "runs": 5
+   },
+   "problems": []
+  }
+ ]
+}

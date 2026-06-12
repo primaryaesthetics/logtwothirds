@@ -95,26 +95,14 @@ impl SplitMix64 {
 /// A list of `(vertex, key)` pairs (a Python `list[tuple[int, Key]]`).
 pub type Pairs = Vec<(u32, Key)>;
 
-/// Partition `pairs` into the `m` smallest-by-value and the rest, with a
-/// random-pivot quickselect. Exact port of `_select_smallest`, including the
-/// `randint` call sequence and the swap pattern, so the (otherwise arbitrary)
-/// output order matches the Python reference run with the same RNG stream.
-pub fn select_smallest(
-    pairs: &[(u32, Key)],
-    m: usize,
-    rng: &mut SplitMix64,
-) -> (Pairs, Pairs) {
-    let n = pairs.len();
-    if m == 0 {
-        return (Vec::new(), pairs.to_vec());
-    }
-    if m >= n {
-        return (pairs.to_vec(), Vec::new());
-    }
-
-    let mut items = pairs.to_vec();
+/// In-place random-pivot quickselect: rearrange `items` so the `m`
+/// smallest-by-value occupy `items[..m]`. Exact port of `_select_smallest`'s
+/// loop, including the `randint` call sequence and the swap pattern, so the
+/// (otherwise arbitrary) element order matches the Python reference run with
+/// the same RNG stream. Caller guarantees `0 < m < items.len()`.
+fn partition_smallest_in_place(items: &mut [(u32, Key)], m: usize, rng: &mut SplitMix64) {
     let mut lo = 0usize;
-    let mut hi = n - 1;
+    let mut hi = items.len() - 1;
     let target = m - 1; // index (0-based) of the m-th smallest after partitioning
     while lo < hi {
         let pivot_idx = rng.randint(lo, hi);
@@ -134,6 +122,26 @@ pub fn select_smallest(
             std::cmp::Ordering::Greater => hi = store - 1,
         }
     }
+}
+
+/// Partition `pairs` into the `m` smallest-by-value and the rest, with a
+/// random-pivot quickselect (see [`partition_smallest_in_place`] for the
+/// order-fidelity contract).
+pub fn select_smallest(
+    pairs: &[(u32, Key)],
+    m: usize,
+    rng: &mut SplitMix64,
+) -> (Pairs, Pairs) {
+    let n = pairs.len();
+    if m == 0 {
+        return (Vec::new(), pairs.to_vec());
+    }
+    if m >= n {
+        return (pairs.to_vec(), Vec::new());
+    }
+
+    let mut items = pairs.to_vec();
+    partition_smallest_in_place(&mut items, m, rng);
     let rest = items.split_off(m);
     (items, rest)
 }
@@ -214,6 +222,9 @@ pub struct BlockDs {
     d1_bounds: Vec<Key>,
     /// `self.where` of the reference: key -> (value, block id, slot index).
     registry: HashMap<u32, (Key, usize, usize)>,
+    /// Reusable buffer for assembling `pull`'s candidate union (cleared on
+    /// every use; never read across calls, so reuse is behavior-neutral).
+    pull_scratch: Vec<(u32, Key)>,
 }
 
 impl BlockDs {
@@ -225,7 +236,8 @@ impl BlockDs {
             d0: VecDeque::new(),
             d1: Vec::new(),
             d1_bounds: vec![b],
-            registry: HashMap::new(),
+            registry: HashMap::default(),
+            pull_scratch: Vec::new(),
         };
         let empty = ds.alloc_block(&[]);
         ds.d1.push(empty);
@@ -321,7 +333,7 @@ impl BlockDs {
         // first occurrence fixes the position, a smaller value updates in
         // place.
         let mut dedup: Vec<(u32, Key)> = Vec::with_capacity(items.len());
-        let mut pos: HashMap<u32, usize> = HashMap::with_capacity(items.len());
+        let mut pos: HashMap<u32, usize> = HashMap::with_capacity_and_hasher(items.len(), Default::default());
         for &(k, v) in items {
             match pos.get(&k) {
                 None => {
@@ -380,36 +392,38 @@ impl BlockDs {
     pub fn pull(&mut self, rng: &mut SplitMix64) -> (Vec<u32>, Key) {
         let m = self.m;
 
-        let mut s0_items: Vec<(u32, Key)> = Vec::new();
+        // Assemble the candidate union (D0 items then D1 items — the same
+        // concatenation order as the reference) in the reusable scratch
+        // buffer instead of two fresh Vecs per call.
+        let mut union = std::mem::take(&mut self.pull_scratch);
+        union.clear();
+
         let mut s0_seen = 0usize;
         for &bid in &self.d0 {
             s0_seen += 1;
             if self.arena[bid].live == 0 {
                 continue;
             }
-            s0_items.extend(self.arena[bid].iter());
-            if s0_items.len() >= m {
+            union.extend(self.arena[bid].iter());
+            if union.len() >= m {
                 break;
             }
         }
         let d0_exhausted = s0_seen == self.d0.len();
+        let s0_len = union.len();
 
-        let mut s1_items: Vec<(u32, Key)> = Vec::new();
         let mut s1_seen = 0usize;
         for &bid in &self.d1 {
             s1_seen += 1;
             if self.arena[bid].live == 0 {
                 continue;
             }
-            s1_items.extend(self.arena[bid].iter());
-            if s1_items.len() >= m {
+            union.extend(self.arena[bid].iter());
+            if union.len() - s0_len >= m {
                 break;
             }
         }
         let d1_exhausted = s1_seen == self.d1.len();
-
-        let mut union = s0_items;
-        union.extend(s1_items);
 
         if union.len() <= m && d0_exhausted && d1_exhausted {
             for &(k, _v) in &union {
@@ -421,11 +435,19 @@ impl BlockDs {
             self.d1.push(empty);
             self.d1_bounds.clear();
             self.d1_bounds.push(self.b);
-            return (union.iter().map(|&(k, _v)| k).collect(), self.b);
+            let keys = union.iter().map(|&(k, _v)| k).collect();
+            self.pull_scratch = union;
+            return (keys, self.b);
         }
 
-        let (smallest, _rest) = select_smallest(&union, m, rng);
-        for &(k, _v) in &smallest {
+        // Same quickselect (same RNG draws and swaps) as the reference's
+        // `_select_smallest`; only the discarded "rest" half is no longer
+        // materialized.
+        if m < union.len() {
+            partition_smallest_in_place(&mut union, m, rng);
+        }
+        let smallest = &union[..m.min(union.len())];
+        for &(k, _v) in smallest {
             let (_value, bid, slot) = self.registry.remove(&k).unwrap();
             self.arena[bid].remove(slot);
         }
@@ -445,7 +467,9 @@ impl BlockDs {
         }
 
         let x = self.min_value();
-        (smallest.iter().map(|&(k, _v)| k).collect(), x)
+        let keys = smallest.iter().map(|&(k, _v)| k).collect();
+        self.pull_scratch = union;
+        (keys, x)
     }
 
     /// White-box invariant checker (port of `_check_invariants`); test-only.

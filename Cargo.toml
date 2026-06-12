@@ -15,10 +15,27 @@ default = []
 # The PyO3 bindings are gated so that plain `cargo test`/`cargo clippy` never
 # need to link libpython. maturin builds with `--features python`.
 python = ["dep:pyo3", "dep:numpy"]
+# Wall-clock phase attribution inside BMSSP (find_pivots / base_case / block
+# DS / transform). Zero overhead when off; results are unchanged when on.
+# Used by `examples/profile_phases.rs`.
+phase-timer = []
 
 [dependencies]
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"], optional = true }
 numpy = { version = "0.23", optional = true }
+# Deterministic fast hashing for the BMSSP bookkeeping maps/sets. Iteration
+# order of these containers is never observed (membership/get/remove only),
+# so swapping the hasher cannot change results — verified by the Step E
+# differential test.
+rustc-hash = "2"
+# Global allocator. BMSSP's recursion makes tens of millions of small,
+# short-lived Vec allocations per run; mimalloc is dramatically faster than
+# the Windows system heap for that pattern. Allocator choice cannot affect
+# results (Step E gate re-verified after the swap).
+mimalloc = { version = "0.1", default-features = false }
+# Parallel multi-source API: one independent single-source run per source,
+# fanned out over a rayon thread pool.
+rayon = "1.10"
 
 [profile.release]
 opt-level = 3

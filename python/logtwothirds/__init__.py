@@ -4,17 +4,19 @@ Public API
 ----------
 shortest_paths(graph, source, *, method="dijkstra")
     -> (distances: np.float64 array, predecessors: np.int32 array)
+multi_source_shortest_paths(graph, sources, *, method="dijkstra")
+    -> (distances: np.float64 array (k, n), predecessors: np.int32 array (k, n))
 """
 
 from __future__ import annotations
 
-from typing import Tuple, Union
+from typing import Sequence, Tuple, Union
 
 import numpy as np
 
 from . import _logtwothirds  # native extension module (built by maturin)
 
-__all__ = ["shortest_paths"]
+__all__ = ["shortest_paths", "multi_source_shortest_paths"]
 
 _CSRTriple = Tuple[np.ndarray, np.ndarray, np.ndarray]
 GraphLike = Union["object", _CSRTriple]
@@ -110,3 +112,55 @@ def shortest_paths(
     if method == "bmssp":
         return _logtwothirds.bmssp(indptr, indices, weights, source)
     return _logtwothirds.dijkstra(indptr, indices, weights, source)
+
+
+def multi_source_shortest_paths(
+    graph: GraphLike,
+    sources: Sequence[int],
+    *,
+    method: str = "dijkstra",
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Shortest paths from each of ``k`` sources, computed in parallel.
+
+    The sources are fanned out over a Rust (rayon) thread pool; row ``i`` of
+    the result is bit-identical to
+    ``shortest_paths(graph, sources[i], method=method)``.
+
+    Parameters
+    ----------
+    graph:
+        Same as :func:`shortest_paths`.
+    sources:
+        Source vertex indices (duplicates allowed).
+    method:
+        ``"dijkstra"`` (default) or ``"bmssp"``. Note that each in-flight
+        ``bmssp`` source holds its own transformed graph, so peak memory
+        scales with ``min(k, n_threads)``.
+
+    Returns
+    -------
+    distances:
+        ``float64`` array of shape ``(k, n)``.
+    predecessors:
+        ``int32`` array of shape ``(k, n)``.
+    """
+    if method not in ("dijkstra", "bmssp"):
+        raise ValueError(
+            f"unknown method {method!r}; supported methods: 'dijkstra', 'bmssp'"
+        )
+
+    indptr, indices, weights = _as_csr(graph)
+    src = np.ascontiguousarray(sources, dtype=np.int64)
+    if src.ndim != 1:
+        raise ValueError("sources must be a 1-D sequence of vertex indices")
+    n = len(indptr) - 1
+
+    if method == "bmssp":
+        dist, pred = _logtwothirds.bmssp_multisource(
+            indptr, indices, weights, src
+        )
+    else:
+        dist, pred = _logtwothirds.dijkstra_multisource(
+            indptr, indices, weights, src
+        )
+    return dist.reshape(len(src), n), pred.reshape(len(src), n)

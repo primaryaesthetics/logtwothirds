@@ -1,0 +1,44 @@
+
+=== random/n=10^4: n=10,000  m=39,991  source=0 ===
+  lt-dijkstra  median        1.2 ms   (min 1.1, max 1.4)
+  lt-bmssp     median      137.4 ms   (min 133.8, max 161.1)
+  scipy        median        2.0 ms   (min 2.0, max 2.4)
+  rustworkx    median        4.9 ms   (min 4.6, max 5.5)
+
+=== random/n=10^5: n=100,000  m=399,996  source=0 ===
+  lt-dijkstra  median       40.0 ms   (min 39.0, max 45.5)
+  lt-bmssp     median     1828.1 ms   (min 1767.5, max 1972.3)
+  scipy        median       42.0 ms   (min 39.8, max 48.9)
+  rustworkx    median       80.8 ms   (min 77.2, max 82.6)
+
+=== random/n=10^6: n=1,000,000  m=3,999,995  source=0 ===
+  lt-dijkstra  median      885.7 ms   (min 879.6, max 1008.0)
+  lt-bmssp     median    25553.5 ms   (min 24443.4, max 25834.0)
+  scipy        median      826.6 ms   (min 775.8, max 848.3)
+  rustworkx    median     1484.1 ms   (min 1336.6, max 1616.2)
+
+=== random/n=10^7: n=10,000,000  m=39,999,994  source=0 ===
+  lt-dijkstra  median    14747.9 ms   (min 14594.9, max 14963.4)
+  lt-bmssp     median   405144.7 ms   (min 394271.9, max 409719.1)
+  scipy        median    12599.8 ms   (min 12228.8, max 12794.3)
+
+=== ba/n=10^4: n=10,000  m=79,974  source=0 ===
+  lt-dijkstra  median        2.0 ms   (min 2.0, max 2.3)
+  lt-bmssp     median      359.8 ms   (min 297.2, max 363.8)
+  scipy        median        3.5 ms   (min 3.2, max 3.6)
+  rustworkx    median       10.3 ms   (min 9.2, max 12.4)
+
+=== ba/n=10^5: n=100,000  m=799,974  source=0 ===
+  lt-dijkstra  median       61.2 ms   (min 58.4, max 62.5)
+  lt-bmssp     median     4221.5 ms   (min 4030.1, max 4364.6)
+  scipy        median       53.7 ms   (min 52.7, max 140.9)
+  rustworkx    median      153.0 ms   (min 137.1, max 248.6)
+
+=== ba/n=10^6: n=1,000,000  m=7,999,974  source=0 ===
+  lt-dijkstra  median     1350.7 ms   (min 1260.0, max 1371.9)
+  lt-bmssp     median    53306.0 ms   (min 52436.1, max 53640.0)
+  scipy        median     1351.3 ms   (min 1228.3, max 1384.9)
+  rustworkx    median     2239.6 ms   (min 2177.0, max 2314.1)
+NOTE: C:\Users\Administrator\Documents\GitHub\logtwothirds\benchmarks\data\USA-road-d.NY.gr not found - skipping the DIMACS family. Download USA-road-d.NY.gr into benchmarks/data/ to enable it.
+
+wrote C:\Users\Administrator\Documents\GitHub\logtwothirds\benchmarks\results\benchmark_loglog.png

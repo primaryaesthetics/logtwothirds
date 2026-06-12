@@ -16,7 +16,8 @@
 //! vectors instead of per-vertex Python lists, and flat `Vec` state arrays.
 
 use crate::block_queue::{BlockDs, Key, SplitMix64, INF_INT, KEY_INF};
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use std::collections::BinaryHeap;
 
 /// CSR directed graph, out-adjacency (the reference's `Graph`).
 pub struct Csr {
@@ -160,6 +161,44 @@ pub fn compute_params(n: usize, kt_override: Option<(usize, usize)>) -> (usize, 
     (k, t, l)
 }
 
+/// Wall-clock seconds attributed to each BMSSP phase. Populated only when
+/// the crate is built with `--features phase-timer`; all-zero otherwise.
+/// Phases are non-overlapping leaves (the recursive `bmssp` body itself is
+/// `total - sum(phases)`), so they can be compared directly.
+#[derive(Default, Debug, Clone)]
+pub struct PhaseTimes {
+    /// Constant-degree transform + CSR build of the transformed graph.
+    pub transform: f64,
+    /// `find_pivots` (Algorithm 1), including its relaxations.
+    pub find_pivots: f64,
+    /// `base_case` (Algorithm 2), including its heap and relaxations.
+    pub base_case: f64,
+    /// `BlockDs::pull` (Lemma 3.3 Pull, incl. quickselect).
+    pub ds_pull: f64,
+    /// The L14–L20 edge-relaxation loop of Algorithm 3, including
+    /// `BlockDs::insert` calls it makes.
+    pub relax_loop: f64,
+    /// `BlockDs::batch_prepend` (incl. chunking quickselects).
+    pub ds_batch_prepend: f64,
+    /// Distance extraction + predecessor recovery on the original graph.
+    pub finalize: f64,
+}
+
+/// Time `$e` into `$st.phase.$field` when the `phase-timer` feature is on;
+/// compile to just `$e` otherwise.
+macro_rules! phase {
+    ($st:expr, $field:ident, $e:expr) => {{
+        #[cfg(feature = "phase-timer")]
+        let __phase_t0 = std::time::Instant::now();
+        let __phase_r = $e;
+        #[cfg(feature = "phase-timer")]
+        {
+            $st.phase.$field += __phase_t0.elapsed().as_secs_f64();
+        }
+        __phase_r
+    }};
+}
+
 /// Operation counters (`OpCounter`, SPEC.md S7.a).
 #[derive(Default, Debug, Clone)]
 pub struct OpCounter {
@@ -181,6 +220,19 @@ pub fn is_globally_sorted(events: &[(u32, f64)]) -> bool {
     events.windows(2).all(|w| w[0].1 <= w[1].1)
 }
 
+/// Reusable buffers for [`State::base_case`]. With the production parameters
+/// the base case is invoked millions of times on tiny inputs (|S| = 1,
+/// |U0| <= k + 1), so allocating its heap and bookkeeping maps fresh on every
+/// call dominates its cost. Reuse changes no observable behavior: every
+/// container is cleared before use, and clearing leaves no residue that any
+/// code path can read.
+#[derive(Default)]
+struct BaseCaseScratch {
+    heap: BinaryHeap<std::cmp::Reverse<(Key, u32)>>,
+    best: HashMap<u32, Key>,
+    in_u0: HashSet<u32>,
+}
+
 /// Per-run mutable state (`State`).
 struct State<'g> {
     g: &'g Csr,
@@ -193,6 +245,8 @@ struct State<'g> {
     settle_log: Vec<(u32, f64)>,
     settled: Vec<bool>,
     rng: SplitMix64,
+    phase: PhaseTimes,
+    bc_scratch: BaseCaseScratch,
 }
 
 impl<'g> State<'g> {
@@ -213,6 +267,8 @@ impl<'g> State<'g> {
             settle_log: Vec::new(),
             settled: vec![false; n],
             rng: SplitMix64::new(seed),
+            phase: PhaseTimes::default(),
+            bc_scratch: BaseCaseScratch::default(),
         }
     }
 
@@ -271,7 +327,7 @@ impl<'g> State<'g> {
         // L2-3: W <- S; W_0 <- S (order-preserving dedup, dict.fromkeys).
         let mut w_order: Vec<u32> = Vec::with_capacity(s.len());
         {
-            let mut seen: HashSet<u32> = HashSet::with_capacity(s.len());
+            let mut seen: HashSet<u32> = HashSet::with_capacity_and_hasher(s.len(), Default::default());
             for &x in s {
                 if seen.insert(x) {
                     w_order.push(x);
@@ -282,7 +338,7 @@ impl<'g> State<'g> {
 
         for _i in 0..k {
             // L4: for i <- 1 to k
-            let mut nf_set: HashSet<u32> = HashSet::new();
+            let mut nf_set: HashSet<u32> = HashSet::default();
             let mut next_frontier: Vec<u32> = Vec::new();
             for &u in &frontier {
                 // L6: edges (u, v) with u in W_{i-1}
@@ -313,8 +369,8 @@ impl<'g> State<'g> {
 
         // L15: recover the tight-edge forest F as a child map (under
         // Assumption 2.1, v's unique tight in-edge is (pred[v], v)).
-        let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-        let mut has_tight_parent: HashSet<u32> = HashSet::new();
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::default();
+        let mut has_tight_parent: HashSet<u32> = HashSet::default();
         for &v in &w_order {
             let up = self.pred[v as usize];
             if up >= 0 && w_set.contains(&(up as u32)) {
@@ -366,15 +422,20 @@ impl<'g> State<'g> {
         let k = self.k;
 
         let mut u0: Vec<u32> = vec![x]; // L2
-        let mut in_u0: HashSet<u32> = HashSet::new();
-        in_u0.insert(x);
-
         // Binary heap with lazy deletion; `best` tracks each vertex's current
         // key so stale pops are skipped. Keys are unique (they embed the
         // vertex id), so any min-heap yields the same extraction sequence as
-        // Python's heapq.
-        let mut heap: BinaryHeap<std::cmp::Reverse<(Key, u32)>> = BinaryHeap::new();
-        let mut best: HashMap<u32, Key> = HashMap::new();
+        // Python's heapq. All three containers are per-run scratch (see
+        // `BaseCaseScratch`), cleared here before use.
+        let BaseCaseScratch {
+            mut heap,
+            mut best,
+            mut in_u0,
+        } = std::mem::take(&mut self.bc_scratch);
+        heap.clear();
+        best.clear();
+        in_u0.clear();
+        in_u0.insert(x);
 
         let kx0 = self.key(x);
         best.insert(x, kx0);
@@ -444,6 +505,9 @@ impl<'g> State<'g> {
             self.settle(v); // SPEC.md S7.b item 1
         }
 
+        // Return the scratch buffers (with their capacity) for the next call.
+        self.bc_scratch = BaseCaseScratch { heap, best, in_u0 };
+
         (bp, u_out)
     }
 
@@ -451,11 +515,11 @@ impl<'g> State<'g> {
     fn bmssp(&mut self, l: usize, b: Key, s: &[u32]) -> (Key, Vec<u32>) {
         self.counter.bmssp_calls += 1;
         if l == 0 {
-            return self.base_case(b, s); // L2-3
+            return phase!(self, base_case, self.base_case(b, s)); // L2-3
         }
 
         let (k, t) = (self.k, self.t);
-        let (p, w_order) = self.find_pivots(b, s); // L4
+        let (p, w_order) = phase!(self, find_pivots, self.find_pivots(b, s)); // L4
 
         // M = 2^((l-1)*t), capped at n (SPEC.md S5).
         let shift = (l - 1) * t;
@@ -480,7 +544,7 @@ impl<'g> State<'g> {
         // The reference's `U` is a Python set whose iteration order leaks via
         // `list(result_U)`; here it is pinned to insertion order (the
         // differential test patches the reference's `set` to match).
-        let mut u_set: HashSet<u32> = HashSet::new();
+        let mut u_set: HashSet<u32> = HashSet::default();
         let mut u_order: Vec<u32> = Vec::new();
         let mut bp_last = bp0;
         let lt = l * t;
@@ -492,7 +556,7 @@ impl<'g> State<'g> {
 
         while (u_order.len() as u128) < bound_cap && !d.is_empty() {
             // L8
-            let (si, bi) = d.pull(&mut self.rng); // L10 (Pull returns (S', x))
+            let (si, bi) = phase!(self, ds_pull, d.pull(&mut self.rng)); // L10 (Pull returns (S', x))
             self.counter.ds_pulls += 1;
             self.counter.ds_pulled_items += si.len() as u64;
             assert!(!si.is_empty(), "Pull returned an empty set while D was non-empty");
@@ -522,27 +586,29 @@ impl<'g> State<'g> {
             bp_last = bp_i;
 
             let mut kk: Vec<(u32, Key)> = Vec::new();
-            for &u in &ui {
-                // L14: for edge e = (u, v) with u in U_i
-                let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
-                for e in start..end {
-                    let v = self.g.indices[e];
-                    let w = self.g.weights[e];
-                    let passed = self.try_relax(u, v, w); // L15-16
-                    if passed {
-                        // Bucket decision uses v's OWN key (see reference NOTE).
-                        let vkey = self.key(v);
-                        if bi <= vkey && vkey < b {
-                            // L17-18
-                            d.insert(v, vkey, &mut self.rng);
-                            self.counter.ds_inserts += 1;
-                        } else if bp_i <= vkey && vkey < bi {
-                            // L19-20
-                            kk.push((v, vkey));
+            phase!(self, relax_loop, {
+                for &u in &ui {
+                    // L14: for edge e = (u, v) with u in U_i
+                    let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+                    for e in start..end {
+                        let v = self.g.indices[e];
+                        let w = self.g.weights[e];
+                        let passed = self.try_relax(u, v, w); // L15-16
+                        if passed {
+                            // Bucket decision uses v's OWN key (see reference NOTE).
+                            let vkey = self.key(v);
+                            if bi <= vkey && vkey < b {
+                                // L17-18
+                                d.insert(v, vkey, &mut self.rng);
+                                self.counter.ds_inserts += 1;
+                            } else if bp_i <= vkey && vkey < bi {
+                                // L19-20
+                                kk.push((v, vkey));
+                            }
                         }
                     }
                 }
-            }
+            });
 
             // L21: K plus the unfinished part of the pulled batch.
             let mut prepend = kk;
@@ -553,7 +619,7 @@ impl<'g> State<'g> {
                 }
             }
             if !prepend.is_empty() {
-                d.batch_prepend(&prepend, &mut self.rng);
+                phase!(self, ds_batch_prepend, d.batch_prepend(&prepend, &mut self.rng));
                 self.counter.ds_prepend_items += prepend.len() as u64;
             }
         }
@@ -602,6 +668,10 @@ pub struct BmsspRun {
     pub levels: usize,
     /// Vertex count of the transformed graph.
     pub n_transformed: usize,
+    /// Per-phase wall clock (all zeros unless built with `phase-timer`).
+    pub phase_times: PhaseTimes,
+    /// Total wall clock of the run (zero unless built with `phase-timer`).
+    pub total_seconds: f64,
 }
 
 /// Map transformed-graph predecessor labels back to the original graph: walk
@@ -655,15 +725,32 @@ pub fn sssp_bmssp(
         }
     }
 
+    #[cfg(feature = "phase-timer")]
+    let t_total = std::time::Instant::now();
+    #[cfg(feature = "phase-timer")]
+    let t0 = std::time::Instant::now();
     let tr = transform_to_constant_degree(g, source); // step 1
+    #[cfg(feature = "phase-timer")]
+    let transform_secs = t0.elapsed().as_secs_f64();
     let (k, t, levels) = compute_params(tr.g2.n, kt_override); // step 2
 
     let mut st = State::new(&tr.g2, tr.source2, k, t, seed); // step 3
+    #[cfg(feature = "phase-timer")]
+    {
+        st.phase.transform = transform_secs;
+    }
     st.bmssp(levels, KEY_INF, &[tr.source2]); // step 4: BMSSP(L, inf, {s'})
 
-    let dist: Vec<f64> = (0..g.n).map(|v| st.dhat[tr.rep[v] as usize]).collect(); // step 5
-    let pred = recover_pred(&st, &tr, g.n, source);
+    let (dist, pred) = phase!(st, finalize, {
+        let dist: Vec<f64> = (0..g.n).map(|v| st.dhat[tr.rep[v] as usize]).collect(); // step 5
+        let pred = recover_pred(&st, &tr, g.n, source);
+        (dist, pred)
+    });
     let n_transformed = tr.g2.n;
+    #[cfg(feature = "phase-timer")]
+    let total_seconds = t_total.elapsed().as_secs_f64();
+    #[cfg(not(feature = "phase-timer"))]
+    let total_seconds = 0.0;
     Ok(BmsspRun {
         dist,
         pred,
@@ -673,6 +760,8 @@ pub fn sssp_bmssp(
         t,
         levels,
         n_transformed,
+        phase_times: st.phase.clone(),
+        total_seconds,
     })
 }
 
