@@ -335,13 +335,14 @@ Dijkstra.
 
 ## Recommendation
 
-**Ship `bmssp-fast`** (already implemented as `method="bmssp-fast"`,
+**Ship `bmssp-fast`** (implemented as `method="bmssp-fast"`,
 `src/variants/fast.rs`): no-transform + hybrid Dijkstra oracle (D=1, B=1024)
 + flat lazy-deletion heap + (k=1, t=12). It passes the full correctness
 suite (520 property graphs + 10⁶-edge stress, bit-exact distances and
-consistent predecessors) and is 7.6–14× faster than the mainline across
-every graph family and size measured, narrowing the gap to Dijkstra from
-27–48× to 2.4–6.4×.
+consistent predecessors). After the consolidation pass below, the final
+matrix (BENCHMARKS.md, 2026-06-13) has it 12.6–43× faster than the mainline
+across every graph family and size measured, narrowing the gap to Dijkstra
+from 26–128× to 1.4–5.0×.
 
 If a single delta must be chosen instead, choose **`bmssp-notransform`**:
 one conceptual change, 5–11× of the win, and the clearest correctness story

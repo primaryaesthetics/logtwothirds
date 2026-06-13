@@ -1,16 +1,23 @@
 # BENCHMARKS — logtwothirds (Dijkstra & BMSSP) vs SciPy vs rustworkx
 
-**TL;DR (honest): BMSSP loses on wall-clock time everywhere we measured — by
-27×–114× against this crate's own Dijkstra — and the gap, while it narrows
-with n exactly as the theory predicts, extrapolates to a crossover so far
-beyond any storable graph that it will never be reached in practice. The
-value of this BMSSP implementation is fidelity and instrumentation, not
-speed. `lt-dijkstra` is competitive with SciPy (±15% on synthetic graphs,
-1.6× faster on the NY road network) and 1.7–6.9× faster than rustworkx.**
+**TL;DR (honest): BMSSP loses on wall-clock time everywhere we measured.
+The faithful implementation (`method="bmssp"`) trails this crate's own
+Dijkstra by 26×–128×. The best BMSSP instantiation we could build
+(`method="bmssp-fast"`, the endpoint of the VARIANTS.md study plus a
+low-level engineering pass) closes that to 1.4×–5.0× — and still loses
+everywhere, with every trend pointing away from a crossover at any storable
+size. Accordingly, `method="auto"` selects Dijkstra always. The value of
+the BMSSP implementations is fidelity, instrumentation, and the measured
+verdict itself — not speed. `lt-dijkstra` is competitive with SciPy
+(1.2–1.9× faster up to 10⁵, 6–25% slower at 10⁶–10⁷, 1.6× faster on the NY
+road network) and 1.5–4.9× faster than rustworkx.**
 
-Everything below was measured with `benchmarks/run.py` on the final,
-optimized code (commit state of 2026-06-12), on a **portable** release build
-(no `target-cpu=native` — see [Build portability](#build-portability)).
+Everything below was measured with `benchmarks/run.py --tag final` on the
+final, consolidated code (commit state of 2026-06-13), on a **portable**
+release build (no `target-cpu=native` — see
+[Build portability](#build-portability)). Raw numbers:
+`benchmarks/results/results_final.{json,md}`. All five implementations were
+re-timed in one session, so every ratio is internally consistent.
 
 ---
 
@@ -33,8 +40,18 @@ Methodology (`benchmarks/run.py`):
 * **only the algorithm call is timed** — graph generation and per-library
   format conversion (CSR triple / `scipy.sparse.csr_array` / `PyDiGraph`)
   happen beforehand;
-* distances of all four implementations are cross-checked per graph
+* distances of all five implementations are cross-checked per graph
   (`np.allclose`, rtol 1e-9); **every cell below passed**.
+
+The five implementations:
+
+| column | what it is |
+|---|---|
+| lt-dijkstra | this crate, `method="dijkstra"` (= what `method="auto"` selects) |
+| lt-bmssp | this crate, `method="bmssp"` — faithful to the paper (transform, paper (k, t), block queue, pinned settlement order) |
+| lt-bmssp-fast | this crate, `method="bmssp-fast"` — the minimal BMSSP instantiation (VARIANTS.md) after the consolidation pass |
+| scipy | `scipy.sparse.csgraph.dijkstra` |
+| rustworkx | `rustworkx.dijkstra_shortest_path_lengths` |
 
 Comparability caveats, stated up front:
 
@@ -42,24 +59,25 @@ Comparability caveats, stated up front:
   of the algorithm's own pipeline, not a format conversion (it is ~2% of its
   time at n=10⁶, so it does not change any conclusion). It also includes
   building the settlement log (Step E instrumentation that ships in the
-  production path).
-* `lt-dijkstra` and `lt-bmssp` return distances **and** predecessors; the
-  scipy call is `dijkstra(csr, directed=True, indices=source,
-  return_predecessors=False)` (its natural fast form); rustworkx
-  (`dijkstra_shortest_path_lengths`) returns distances of reachable vertices
-  only and pays a per-edge Python `float()` cost for edge weights — its
-  natural API has no way to avoid that.
+  production path). `lt-bmssp-fast` has neither (no transform; instrumentation
+  compiled out unless `--features phase-timer`).
+* `lt-dijkstra`, `lt-bmssp` and `lt-bmssp-fast` return distances **and**
+  predecessors; the scipy call is `dijkstra(csr, directed=True,
+  indices=source, return_predecessors=False)` (its natural fast form);
+  rustworkx (`dijkstra_shortest_path_lengths`) returns distances of
+  reachable vertices only and pays a per-edge Python `float()` cost for edge
+  weights — its natural API has no way to avoid that.
 
 ## Results
 
 ### 1. Random directed graphs, m = 4n (weights U[0.01, 1))
 
-| n | m | lt-dijkstra | lt-bmssp | scipy | rustworkx | bmssp / lt-dijkstra |
-|---:|---:|---:|---:|---:|---:|---:|
-| 10⁴ | 39,991 | **1.2 ms** | 137.4 ms | 2.0 ms | 4.9 ms | 114× |
-| 10⁵ | 399,996 | **40.0 ms** | 1.83 s | 42.0 ms | 80.8 ms | 46× |
-| 10⁶ | 3,999,995 | 885.7 ms | 25.55 s | **826.6 ms** | 1.48 s | 29× |
-| 10⁷ | 39,999,994 | 14.75 s | 405.1 s | **12.60 s** | — ¹ | 27× |
+| n | m | lt-dijkstra | lt-bmssp | lt-bmssp-fast | scipy | rustworkx | bmssp / dij | fast / dij |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10⁴ | 39,991 | **1.4 ms** | 117.3 ms | 2.7 ms | 2.7 ms | 5.7 ms | 84× | 1.9× |
+| 10⁵ | 399,996 | **36.9 ms** | 1.66 s | 67.4 ms | 44.6 ms | 87.1 ms | 45× | 1.8× |
+| 10⁶ | 3,999,995 | 854.4 ms | 24.61 s | 1.34 s | **805.5 ms** | 1.59 s | 29× | 1.6× |
+| 10⁷ | 39,999,994 | 13.30 s | 345.1 s | 18.40 s | **10.69 s** | — ¹ | 26× | 1.4× |
 
 ¹ rustworkx skipped at n=10⁷: a 4×10⁷-edge `PyDiGraph` (one Python object
 per edge) exceeds this machine's memory/time budget. The harness flag
@@ -68,46 +86,52 @@ hidden.
 
 ### 2. Barabási–Albert graphs (attachment 4, symmetrized → directed)
 
-| n | m (arcs) | lt-dijkstra | lt-bmssp | scipy | rustworkx | bmssp / lt-dijkstra |
-|---:|---:|---:|---:|---:|---:|---:|
-| 10⁴ | 79,974 | **2.0 ms** | 359.8 ms | 3.5 ms | 10.3 ms | 180× |
-| 10⁵ | 799,974 | 61.2 ms | 4.22 s | **53.7 ms** | 153.0 ms | 69× |
-| 10⁶ | 7,999,974 | **1.35 s** | 53.31 s | 1.35 s | 2.24 s | 39× |
+| n | m (arcs) | lt-dijkstra | lt-bmssp | lt-bmssp-fast | scipy | rustworkx | bmssp / dij | fast / dij |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10⁴ | 79,974 | **1.7 ms** | 217.3 ms | 4.1 ms | 2.8 ms | 6.5 ms | 128× | 2.4× |
+| 10⁵ | 799,974 | **40.0 ms** | 3.25 s | 95.5 ms | 49.9 ms | 118.4 ms | 81× | 2.4× |
+| 10⁶ | 7,999,974 | 1.28 s | 43.86 s | 1.79 s | **1.06 s** | 1.86 s | 34× | 1.4× |
 
-The heavy-tailed degree distribution is *worse* for BMSSP than the uniform
-family: the constant-degree transform replaces each vertex of degree d with
-a d-vertex zero-weight cycle, so hubs become long cycles that the algorithm
-must walk edge by edge.
+The heavy-tailed degree distribution is *worse* for the faithful BMSSP than
+the uniform family: the constant-degree transform replaces each vertex of
+degree d with a d-vertex zero-weight cycle, so hubs become long cycles that
+the algorithm must walk edge by edge. `lt-bmssp-fast` skips the transform,
+which is exactly why its BA penalty (1.4–2.4×) looks like its random-graph
+penalty instead of inheriting the faithful one (34–128×).
 
 ### 3. DIMACS USA-road-d.NY
 
 9th DIMACS Challenge distance graph, New York City road network
 (`benchmarks/run.py --families dimacs`, source = vertex 0; distances of all
-four implementations cross-checked, no mismatches):
+five implementations cross-checked, no mismatches):
 
-| graph | n | m | lt-dijkstra | lt-bmssp | scipy | rustworkx | bmssp / lt-dijkstra |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| USA-road-d.NY | 264,346 | 730,100 | **25.7 ms** | 1.74 s | 42.3 ms | 178.4 ms | 68× |
+| graph | n | m | lt-dijkstra | lt-bmssp | lt-bmssp-fast | scipy | rustworkx | bmssp / dij | fast / dij |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| USA-road-d.NY | 264,346 | 730,100 | **25.9 ms** | 1.65 s | 130.5 ms | 40.7 ms | 125.8 ms | 64× | 5.0× |
 
-Two observations. First, `lt-dijkstra` does *better* here than on the
-synthetic families — 1.6× faster than SciPy and 6.9× faster than rustworkx —
+Three observations. First, `lt-dijkstra` does *better* here than on the
+synthetic families — 1.6× faster than SciPy and 4.9× faster than rustworkx —
 the low degree (≈2.8 avg) and real-distance weights are a friendly shape for
-a binary heap. Second, an earlier draft of this document predicted bmssp
-would trail by "roughly 20–40×" because the low degree makes the
-constant-degree transform nearly free; the measured ratio is **68×**, worse
-than predicted. The transform is indeed cheap here, but the road network's
-large diameter means the algorithm settles vertices in many small frontiers,
-so the per-call recursion overhead (the dominant cost identified in the
-profile below) is amortized over even less useful work than on the
-small-diameter synthetic graphs. The prediction was wrong in the direction
-that *strengthens* the overall conclusion.
+a heap. Second, an earlier draft of this document predicted the faithful
+bmssp would trail by "roughly 20–40×" because the low degree makes the
+constant-degree transform nearly free; the measured ratio is **64×**, worse
+than predicted: the road network's large diameter means the algorithm
+settles vertices in many small frontiers, so the per-call recursion
+overhead is amortized over even less useful work than on the small-diameter
+synthetic graphs. The prediction was wrong in the direction that
+*strengthens* the overall conclusion. Third, the road graph is also
+`lt-bmssp-fast`'s worst case (5.0× vs 1.4–2.4× elsewhere): its integer
+weights produce massive path-length ties, and bmssp-fast pays for every tie
+with the full lexicographic `(len, hops, id)` comparison and the extra
+relaxations the `<=` rule implies — the contract it must keep to be a BMSSP
+oracle.
 
 ### Log-log plot
 
-![log-log benchmark](benchmarks/results/benchmark_loglog.png)
+![log-log benchmark](benchmarks/results/benchmark_loglog_final.png)
 
-(`benchmarks/results/benchmark_loglog.png`; raw numbers in `results.json`,
-generated table in `results.md`.)
+(`benchmarks/results/benchmark_loglog_final.png`; raw numbers in
+`results_final.json`, generated table in `results_final.md`.)
 
 ---
 
@@ -179,6 +203,42 @@ Proposed but **not** applied (and why):
   **forbidden** — it would change the settlement log and break the Step E
   contract even where distances stay correct.
 
+## bmssp-fast: how far engineering can push BMSSP
+
+`method="bmssp-fast"` is the endpoint of two efforts documented in
+VARIANTS.md: the algorithm-level variant study (no constant-degree
+transform + bounded multi-source Dijkstra oracle (D=1, B=1024) + flat heap
++ tuned (k=1, t=12) — each delta verified against the paper's correctness
+lemmas) and a final low-level consolidation pass (hash-free oracles with
+epoch-stamped membership, a structure-of-arrays 4-ary heap in exact `Key`
+order, fused 16-byte labels; 2.13 s → 1.21 s at n=10⁶, every step gated on
+the 520-graph + 10⁶-edge bit-exactness suite). Its distances are bit-exact
+vs Dijkstra on every graph in that suite and cross-checked in every
+benchmark cell above.
+
+Two honest disclosures about what it is:
+
+1. **Structurally, a single-source bmssp-fast run is one bounded
+   multi-source Dijkstra call.** At the tuned parameters the hybrid oracle
+   rule (|S| ≤ 1024) already fires at the root, so the run executes zero
+   FindPivots calls and zero queue pulls (phase profile:
+   `examples/profile_fast.rs`). The variant study's tuning gradients all
+   pointed toward Dijkstra, and the measured optimum *is* Dijkstra —
+   carrying BMSSP's lexicographic `(len, hops, id)` labels, `<=` relaxation
+   rule, and bound checks. That label/contract overhead is precisely the
+   residual 1.4–5.0× gap.
+2. **It exists to make the verdict sharp, not to be used.** The
+   interesting number it produces is: even after deleting every cost the
+   correctness lemmas allow to be deleted, the BMSSP framework still loses
+   to plain Dijkstra everywhere measured.
+
+Gap-vs-n, both engines (random m = 4n):
+
+| ratio to lt-dijkstra | 10⁴ | 10⁵ | 10⁶ | 10⁷ |
+|---|---:|---:|---:|---:|
+| lt-bmssp (faithful) | 84× | 45× | 29× | 26× |
+| lt-bmssp-fast | 1.9× | 1.8× | 1.6× | 1.4× |
+
 ## PGO evaluation
 
 Two-phase build with `-Cprofile-generate` → `llvm-profdata merge` →
@@ -198,8 +258,9 @@ only if a CI pipeline ships prebuilt wheels.
 
 ## Parallel multi-source API (rayon)
 
-New in this change set: `multi_source_shortest_paths(graph, sources,
-method="dijkstra"|"bmssp")` → `(k, n)` distance and predecessor matrices.
+`shortest_paths_multi(graph, sources, method="auto"|"dijkstra"|"bmssp")`
+(formerly `multi_source_shortest_paths`) → `(k, n)` distance and
+predecessor matrices.
 Sources fan out over a rayon pool; each row is **bit-identical** to the
 corresponding single-source call (asserted by `tests/test_multi_source.py`
 and Rust unit tests — row results don't depend on scheduling).
@@ -227,9 +288,11 @@ All numbers in this document are from the **portable** build.
 ## Honest conclusion
 
 **Where bmssp loses: everywhere, on every graph family and size we
-measured** — 27×–114× slower than this crate's Dijkstra on uniform random
-graphs, 39×–180× on Barabási–Albert graphs, 68× on the USA-road-d.NY road
-network. Three structural reasons:
+measured.** The faithful engine trails this crate's Dijkstra 26×–84× on
+uniform random graphs, 34×–128× on Barabási–Albert graphs, 64× on the
+USA-road-d.NY road network. The maximally-engineered `bmssp-fast` trails
+1.4×–1.9× on random, 1.4×–2.4× on BA, 5.0× on the road network. Three
+structural reasons for the faithful gap:
 
 1. **The constant-degree transform multiplies the problem.** A 4 M-edge
    graph becomes an 8 M-vertex, 12 M-edge graph before the algorithm
@@ -243,29 +306,48 @@ network. Three structural reasons:
    of the constant with behavior-preserving engineering, a third of the
    runtime is still recursion bookkeeping that cannot be attributed to any
    single function.
-3. **The asymptotic advantage is real but glacial.** The ratio
-   bmssp/dijkstra falls 114× → 46× → 29× → 27× from n=10⁴ to 10⁷ — the
-   measured times fit T_bmssp/T_dij ≈ C·log₂(n)^(−1/3) with C ≈ 78, exactly
-   the O(m log^(2/3) n) vs O(m log n) prediction. Extrapolated, the curves
-   cross near log₂ n ≈ C³ ≈ 4.8×10⁵, i.e. n ≈ 2^480000 — a graph that
-   cannot exist in this universe. "Breaking the sorting barrier" is an
-   asymptotic statement, and these measurements are consistent with it
-   *while showing it buys nothing at feasible scales*.
+3. **The asymptotic advantage is real but glacial.** The faithful ratio
+   falls 84× → 45× → 29× → 26× from n=10⁴ to 10⁷, consistent with the
+   O(m log^(2/3) n) vs O(m log n) prediction
+   T_bmssp/T_dij ≈ C·log₂(n)^(−1/3); the fitted C drifts down to ≈74–79 at
+   the largest sizes. Extrapolated, the curves cross near
+   log₂ n ≈ C³ ≈ 4×10⁵, i.e. **n ≈ 2^400,000** — a graph that cannot exist
+   in this universe. "Breaking the sorting barrier" is an asymptotic
+   statement, and these measurements are consistent with it *while showing
+   it buys nothing at feasible scales*.
+
+**And no crossover exists for bmssp-fast either.** Its ratio falls
+1.9× → 1.8× → 1.6× → 1.4× over the same range, but the extrapolation is
+even less favorable than it looks: structurally (see above) bmssp-fast *is*
+a Dijkstra run carrying BMSSP's heavier labels, so its gap is a per-edge
+constant-factor cost (16-byte lexicographic labels vs 8-byte distances,
+i64 hop arithmetic in every comparison, larger heap entries) that does not
+vanish with n — the honest model is a plateau ≥ ~1.3×, not a crossing.
+Even force-fitting the paper's C·log₂(n)^(−1/3) form to the measured points
+(C ≈ 4.0–4.6) puts the nominal crossing at log₂ n ≈ 64–97, i.e.
+n ≈ 10^19–10^29 — beyond any storable graph. Both readings give the same
+verdict: **there is no size at which selecting any BMSSP engine over
+Dijkstra pays, which is why `method="auto"` selects Dijkstra always.**
 
 **Where bmssp wins:** not on wall-clock time, on any input we could
 construct or store. What this implementation does win is (a) a verified,
 bit-exact executable model of the Duan–Mao–Mao–Shu–Yin algorithm with
 deterministic settlement logs and operation counters — useful for studying
-the algorithm itself — and (b) the scaling-trend confirmation above, which
-is only credible because the implementation is differential-tested against
-the reference rather than tuned until "fast enough to look right".
+the algorithm itself; (b) the scaling-trend confirmation above, which is
+only credible because the implementation is differential-tested against
+the reference rather than tuned until "fast enough to look right"; and
+(c) via the variant ladder, a measured decomposition of *where* the
+slowdown lives (transform ≈ 8–11×, recursion machinery ≈ the rest) ending
+in the sharpest possible statement of the verdict (`bmssp-fast`).
 
-**Practical guidance:** use `shortest_paths(..., method="dijkstra")` (or
-`multi_source_shortest_paths` for batches — 4× on 4 cores). It matches or
-beats SciPy up to 10⁶ vertices (SciPy is 7–15% faster at 10⁶–10⁷ on this
-machine; on the NY road network lt-dijkstra is 1.6× faster), beats
-rustworkx 1.7–6.9×, and returns predecessors at no extra charge. Keep
-`method="bmssp"` for instrumentation and research.
+**Practical guidance:** use `shortest_paths(graph, source)` — the default
+`method="auto"` selects Dijkstra, always (or `shortest_paths_multi` for
+batches — 4× on 4 cores). It matches or beats SciPy up to 10⁵ vertices
+(SciPy is 6–25% faster at 10⁶–10⁷ on this machine; on the NY road network
+lt-dijkstra is 1.6× faster), beats rustworkx 1.5–4.9×, and returns
+predecessors at no extra charge. `method="bmssp"` (faithful, instrumented)
+and `method="bmssp-fast"` / `method="bmssp-<variant>"` (research engines)
+are for studying the algorithm, with the honest numbers above.
 
 ---
 
@@ -274,10 +356,12 @@ rustworkx 1.7–6.9×, and returns predecessors at no extra charge. Keep
 ```bash
 # build (portable) and run the suite
 .venv/Scripts/maturin develop --release
-.venv/Scripts/python benchmarks/run.py                 # full, ~1 h
+.venv/Scripts/python benchmarks/run.py --tag final     # full, ~1.5 h
 .venv/Scripts/python benchmarks/run.py --quick         # smoke
-# phase profile
+# phase profiles (mainline / bmssp-fast)
 cargo run --release --features phase-timer --example profile_phases -- 1000000
-# the gate every optimization must pass
-cargo test --test differential
+cargo run --release --features phase-timer --example profile_fast -- 1000000
+# the gates every optimization must pass
+cargo test --test differential                          # mainline (order-exact)
+cargo test --release --test variants_correctness        # variants (bit-exact dist)
 ```

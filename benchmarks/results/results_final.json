@@ -1,0 +1,571 @@
+{
+ "meta": {
+  "date": "2026-06-13 04:02",
+  "machine": "Intel64 Family 6 Model 58 Stepping 9, GenuineIntel / Windows 11",
+  "python": "3.14.3",
+  "numpy/scipy/rustworkx": "2.4.6 / 1.17.1 / 0.17.1",
+  "runs": 5,
+  "warmup": 1,
+  "seeds": "random=0xc0ffee ba=0xba0bab bmssp=0",
+  "total wall time": "3489 s"
+ },
+ "results": [
+  {
+   "family": "random",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 39991,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.0014156999968690798,
+    "min": 0.001410199998645112,
+    "max": 0.0015008000045781955,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 39991,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 0.117269700000179,
+    "min": 0.11232339999696705,
+    "max": 0.1305939000012586,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 39991,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 0.002731200002017431,
+    "min": 0.0027216999951633625,
+    "max": 0.002771200001006946,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 39991,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.002713699999731034,
+    "min": 0.0021550000019487925,
+    "max": 0.0038424000013037585,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 39991,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 0.005715200000850018,
+    "min": 0.00491640000109328,
+    "max": 0.007398000001558103,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.036942500002624,
+    "min": 0.031214800001180265,
+    "max": 0.0432236999986344,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 1.6599191999994218,
+    "min": 1.594763499997498,
+    "max": 1.8135301000002073,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 0.06744069999695057,
+    "min": 0.05706289999943692,
+    "max": 0.07062700000096811,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.04456999999820255,
+    "min": 0.03828280000016093,
+    "max": 0.10557669999980135,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 399996,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 0.0870952000041143,
+    "min": 0.08071889999700943,
+    "max": 0.09459090000018477,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 3999995,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.8544364999979734,
+    "min": 0.8038940999977058,
+    "max": 0.9850335000010091,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 3999995,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 24.606289800001832,
+    "min": 23.175103199995647,
+    "max": 25.567898200002674,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 3999995,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 1.3436063999979524,
+    "min": 1.3266298000016832,
+    "max": 1.5147021000011591,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 3999995,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.8055223000046681,
+    "min": 0.7839358999990509,
+    "max": 0.8196443999986514,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 3999995,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 1.5928771999970195,
+    "min": 1.3342862999998033,
+    "max": 1.660225799998443,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 13.300454700001865,
+    "min": 13.198939699999755,
+    "max": 13.500130600004923,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 345.1144790000035,
+    "min": 339.73264349999954,
+    "max": 380.40498329999537,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 18.40253930000472,
+    "min": 18.016425299996627,
+    "max": 18.534581200001412,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "scipy",
+   "timing": {
+    "median": 10.692357899999479,
+    "min": 10.593421300000045,
+    "max": 10.754616699996404,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "random",
+   "label": "n=10^7",
+   "n": 10000000,
+   "m": 39999994,
+   "impl": "rustworkx",
+   "timing": null,
+   "problems": [
+    "skipped: edge count over --rustworkx-max-edges (PyDiGraph build too large for this machine)"
+   ]
+  },
+  {
+   "family": "ba",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 79974,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.0017462000032537617,
+    "min": 0.001691899997240398,
+    "max": 0.002075100004731212,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 79974,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 0.21725610000430606,
+    "min": 0.2134024999977555,
+    "max": 0.2581156000014744,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 79974,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 0.004096899996511638,
+    "min": 0.004070399998454377,
+    "max": 0.004200499999569729,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 79974,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.0028378999995766208,
+    "min": 0.0027828000020235777,
+    "max": 0.004657299999962561,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^4",
+   "n": 10000,
+   "m": 79974,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 0.006536900000355672,
+    "min": 0.006258699999307282,
+    "max": 0.007715300002018921,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 799974,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.0400149000051897,
+    "min": 0.03984739999577869,
+    "max": 0.04257950000464916,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 799974,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 3.2474942000044393,
+    "min": 3.183234199997969,
+    "max": 3.4448415000006207,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 799974,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 0.09551949999877252,
+    "min": 0.08917589999327902,
+    "max": 0.11358260000270093,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 799974,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.049857300000439864,
+    "min": 0.04910599999857368,
+    "max": 0.053251299999828916,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^5",
+   "n": 100000,
+   "m": 799974,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 0.11838129999523517,
+    "min": 0.10909459999675164,
+    "max": 0.13700960000278428,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 7999974,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 1.2757719000001089,
+    "min": 1.1810645000005024,
+    "max": 1.510449300003529,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 7999974,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 43.860742500000924,
+    "min": 43.64147130000492,
+    "max": 44.10783669999364,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 7999974,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 1.7862800000002608,
+    "min": 1.734997100000328,
+    "max": 1.870961399996304,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 7999974,
+   "impl": "scipy",
+   "timing": {
+    "median": 1.0616139999983716,
+    "min": 1.0032781999980216,
+    "max": 1.124387600000773,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "ba",
+   "label": "n=10^6",
+   "n": 1000000,
+   "m": 7999974,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 1.8585209000011673,
+    "min": 1.8371918999982881,
+    "max": 1.9462121999968076,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-dijkstra",
+   "timing": {
+    "median": 0.025935900004697032,
+    "min": 0.02431110000179615,
+    "max": 0.02713229999790201,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-bmssp",
+   "timing": {
+    "median": 1.648388800000248,
+    "min": 1.6132584999941173,
+    "max": 1.7112657999969088,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "lt-bmssp-fast",
+   "timing": {
+    "median": 0.1305281999957515,
+    "min": 0.1259137000015471,
+    "max": 0.1372551000022213,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "scipy",
+   "timing": {
+    "median": 0.0406963999994332,
+    "min": 0.038091100002930034,
+    "max": 0.04877739999938058,
+    "runs": 5
+   },
+   "problems": []
+  },
+  {
+   "family": "dimacs",
+   "label": "USA-road-d.NY",
+   "n": 264346,
+   "m": 730100,
+   "impl": "rustworkx",
+   "timing": {
+    "median": 0.12583770000492223,
+    "min": 0.12353240000084043,
+    "max": 0.12622299999929965,
+    "runs": 5
+   },
+   "problems": []
+  }
+ ]
+}
