@@ -61,8 +61,10 @@ maximally-engineered `bmssp-fast` is structurally a Dijkstra run carrying
 BMSSP's heavier labels, so its remaining 1.4–5× gap is a constant factor,
 not a vanishing one. There is no practical size at which any BMSSP engine
 wins — `bmssp` and `bmssp-fast` are provided for research and verification.
-Full story, methodology, and the variant ladder: **BENCHMARKS.md** and
-**VARIANTS.md**.
+Full story, methodology, and the variant ladder: **BENCHMARKS.md** (final
+matrix and verdict), **VARIANTS.md** (the algorithm-level variant study),
+and **OPTIMIZATION.md** (the low-level pass that produced the shipping
+`bmssp-fast`).
 
 ## Implementation
 
@@ -111,3 +113,22 @@ python benchmarks/run.py          # full benchmark matrix (~1.5 h)
 The differential test needs a Python interpreter to run the reference; it uses
 `.venv` next to `Cargo.toml` (or `LOGTWOTHIRDS_PYTHON`) and skips with a notice
 if neither exists.
+
+## Documents
+
+The research record, in reading order:
+
+| file | what it is |
+|---|---|
+| `ALGORITHM.md` | self-contained distillation of the Duan–Mao–Mao–Shu–Yin paper (the source of truth all lemma references point into) |
+| `SPEC.md` | engineering spec for the pure-Python reference (`python/logtwothirds/_reference.py`); defers to ALGORITHM.md on any conflict |
+| `AUDIT.md` | line-by-line audit of the Python reference against the paper (zero blockers; findings F1–F14) |
+| `QUESTIONS.md` / `FAILCASE.md` | the four resolved paper-interpretation questions, and the worked failure case that motivated the settled-vertex filter |
+| `VARIANTS.md` | algorithm-level variant study (`src/variants/`) that produced `bmssp-fast`; ranks the variants and proves each delta correctness-preserving |
+| `OPTIMIZATION.md` | low-level engineering pass that tightened `bmssp-fast` (2.13 s → 1.21 s at n=10⁶); distinct from the mainline pass in BENCHMARKS.md |
+| `BENCHMARKS.md` | final cross-implementation matrix and the honest verdict (Dijkstra wins everywhere; no crossover) — the authoritative wall-clock numbers |
+
+Numbers across these are consistent as of 2026-06-13; where a research-phase
+table (VARIANTS.md) and the final matrix (BENCHMARKS.md) differ for
+`bmssp-fast`, BENCHMARKS.md is authoritative and the older table is marked as
+superseded in place.

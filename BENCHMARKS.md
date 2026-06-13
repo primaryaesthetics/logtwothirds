@@ -162,6 +162,11 @@ it is millions of tiny heap/map/Vec lifecycles.
 
 ## Optimizations: proposed, applied, rejected
 
+This section is the **mainline faithful `bmssp`** optimization pass. The
+parallel pass on the **`bmssp-fast` variant** (a different engine under a
+different gate, 2.13 s → 1.21 s at n=10⁶) is recorded in **OPTIMIZATION.md**;
+the two do not overlap.
+
 Rule followed throughout (as required): **the Step E differential test
 (`cargo test --test differential` — 200 graphs, bit-exact distances AND
 settlement order vs the pinned Python reference) was run after every single
@@ -212,9 +217,9 @@ transform + bounded multi-source Dijkstra oracle (D=1, B=1024) + flat heap
 lemmas) and a final low-level consolidation pass (hash-free oracles with
 epoch-stamped membership, a structure-of-arrays 4-ary heap in exact `Key`
 order, fused 16-byte labels; 2.13 s → 1.21 s at n=10⁶, every step gated on
-the 520-graph + 10⁶-edge bit-exactness suite). Its distances are bit-exact
-vs Dijkstra on every graph in that suite and cross-checked in every
-benchmark cell above.
+the 520-graph + 10⁶-edge bit-exactness suite — full record in
+**OPTIMIZATION.md**). Its distances are bit-exact vs Dijkstra on every graph
+in that suite and cross-checked in every benchmark cell above.
 
 Two honest disclosures about what it is:
 

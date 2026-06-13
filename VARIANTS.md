@@ -242,6 +242,19 @@ removes the clothing.
 
 ## Results matrix
 
+> **Research-phase numbers — superseded for `bmssp-fast`.** This matrix is
+> the variant *study*'s internal comparison, measured in one session before
+> the low-level consolidation pass (see [the Consolidation
+> section](#consolidation-low-level-engineering-pass-final) and
+> **OPTIMIZATION.md**) and on a different harness than the final report. It
+> is kept because the *relative* variant ranking it establishes is the
+> study's actual finding. The **authoritative final wall-clock numbers** for
+> `lt-dijkstra` / `lt-bmssp` / `bmssp-fast` are the median-of-5 matrix in
+> **BENCHMARKS.md** (2026-06-13): there `bmssp-fast` is **1.4–1.9×** of
+> Dijkstra on random graphs, 1.4–2.4× on Barabási–Albert, and 5.0× on the NY
+> road graph — i.e. faster, and with a different ratio, than the
+> pre-consolidation cells below. Where the two disagree, BENCHMARKS.md wins.
+
 Same machine, build, and graph generation as BENCHMARKS.md (portable release
 build, mimalloc; random family seeds `0xC0FFEE+i`, m = 4n, source 0; DIMACS
 NY road graph). All implementations were re-timed in this session so ratios
@@ -288,22 +301,28 @@ Negative results, stated plainly:
   are real but are not the leading constant; it earns its place only inside
   the combination, where the queue sees far less traffic and simplicity wins.
 - **No variant changes BENCHMARKS.md's verdict.** Even bmssp-fast loses to
-  this crate's Dijkstra by 2.4–6.4× everywhere measured. The variants cut
-  the constant by an order of magnitude (28× → 2.4× at 10⁶); they do not
-  move the asymptotic crossover into reach. And the tuning gradients all
-  point the same way: every knob that makes a variant faster makes it more
+  this crate's Dijkstra everywhere measured — by 2.4–6.4× in these
+  research-phase cells, and by **1.4–5.0×** in the final post-consolidation
+  matrix (BENCHMARKS.md). The variants cut the faithful constant by more than
+  an order of magnitude (29× → 1.6× at 10⁶, final); they do not move the
+  asymptotic crossover into reach. And the tuning gradients all point the
+  same way: every knob that makes a variant faster makes it more
   Dijkstra-like (more oracle, fewer rounds, flatter queue, fewer levels).
   The measured optimum is the minimal BMSSP instantiation that is not
-  literally Dijkstra.
+  literally Dijkstra — and the profile (OPTIMIZATION.md) shows that for a
+  single-source run even *that* reduces to one bounded Dijkstra call.
 
 ## Consolidation: low-level engineering pass (final)
 
-After the variant study froze, the OPTIMIZATION.md-style engineering rules
-(flat arenas, epoch stamps instead of clearing, no hot-loop allocations,
-feature-gated instrumentation) were applied to the shared engine, profile-
-driven via `examples/profile_fast.rs` (`--features phase-timer`). Gate for
-every step: the full `variants_correctness` suite (520 graphs + 10⁶-edge
-stress per variant, bit-exact distances), one commit per accepted change.
+After the variant study froze, a low-level engineering pass (flat arenas,
+epoch stamps instead of clearing, no hot-loop allocations, feature-gated
+instrumentation) was applied to the shared engine, profile-driven via
+`examples/profile_fast.rs` (`--features phase-timer`). Gate for every step:
+the full `variants_correctness` suite (520 graphs + 10⁶-edge stress per
+variant, bit-exact distances), one commit per accepted change. **The full
+record — per-change rationale, the rejected/skipped list, the profile, and
+the distinction from the mainline optimization pass — is OPTIMIZATION.md;
+this section summarises it.**
 
 Applied (bmssp-fast, n = 10⁶ random m = 4n, phase-timer build):
 
@@ -340,7 +359,7 @@ Dijkstra.
 + flat lazy-deletion heap + (k=1, t=12). It passes the full correctness
 suite (520 property graphs + 10⁶-edge stress, bit-exact distances and
 consistent predecessors). After the consolidation pass below, the final
-matrix (BENCHMARKS.md, 2026-06-13) has it 12.6–43× faster than the mainline
+matrix (BENCHMARKS.md, 2026-06-13) has it 12.6–53× faster than the mainline
 across every graph family and size measured, narrowing the gap to Dijkstra
 from 26–128× to 1.4–5.0×.
 
