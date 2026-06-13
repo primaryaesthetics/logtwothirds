@@ -305,11 +305,21 @@ impl KeyHeap {
     }
 }
 
+/// Per-vertex tentative label, `(dhat, hops)` fused into one 16-byte slot:
+/// the oracles' relax loop reads both fields for every scanned edge, and one
+/// cache line now serves both (16-byte aligned, so a label never straddles
+/// lines). `pred` stays separate — it is only read on full `(len, hops)`
+/// ties and written on successful relaxations.
+#[derive(Clone, Copy)]
+struct Label {
+    len: f64,
+    hops: i64,
+}
+
 struct Engine<'g, Q: DQueue> {
     g: &'g Csr,
     cfg: Config,
-    dhat: Vec<f64>,
-    hops: Vec<i64>,
+    lab: Vec<Label>,
     pred: Vec<i64>,
     k: usize,
     t: usize,
@@ -328,15 +338,18 @@ struct Engine<'g, Q: DQueue> {
 impl<'g, Q: DQueue> Engine<'g, Q> {
     fn new(g: &'g Csr, source: u32, k: usize, t: usize, seed: u64, cfg: Config) -> Self {
         let n = g.n;
-        let mut dhat = vec![f64::INFINITY; n];
-        let mut hops = vec![INF_INT; n];
-        dhat[source as usize] = 0.0;
-        hops[source as usize] = 0;
+        let mut lab = vec![
+            Label {
+                len: f64::INFINITY,
+                hops: INF_INT,
+            };
+            n
+        ];
+        lab[source as usize] = Label { len: 0.0, hops: 0 };
         Engine {
             g,
             cfg,
-            dhat,
-            hops,
+            lab,
             pred: vec![-1; n],
             k,
             t,
@@ -353,9 +366,10 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
 
     #[inline]
     fn key(&self, v: u32) -> Key {
+        let l = self.lab[v as usize];
         Key {
-            len: self.dhat[v as usize],
-            hops: self.hops[v as usize],
+            len: l.len,
+            hops: l.hops,
             id: v as i64,
         }
     }
@@ -363,20 +377,24 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
     /// The `<=` relaxation of Remark 3.4 (never gated on a bound).
     #[inline]
     fn try_relax(&mut self, u: u32, v: u32, w: f64) -> bool {
-        let cand_len = self.dhat[u as usize] + w;
+        let lu = self.lab[u as usize];
+        let lv = self.lab[v as usize];
+        let cand_len = lu.len + w;
         let cand = Key {
             len: cand_len,
-            hops: self.hops[u as usize] + 1,
+            hops: lu.hops + 1,
             id: u as i64,
         };
         let cur = Key {
-            len: self.dhat[v as usize],
-            hops: self.hops[v as usize],
+            len: lv.len,
+            hops: lv.hops,
             id: self.pred[v as usize],
         };
         if cand <= cur {
-            self.dhat[v as usize] = cand_len;
-            self.hops[v as usize] = cand.hops;
+            self.lab[v as usize] = Label {
+                len: cand_len,
+                hops: cand.hops,
+            };
             self.pred[v as usize] = u as i64;
             true
         } else {
@@ -459,8 +477,8 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                     let w = self.g.weights[e];
                     #[allow(clippy::float_cmp)]
                     let tight = vv == v
-                        && self.dhat[v as usize] == self.dhat[u as usize] + w
-                        && self.hops[v as usize] == self.hops[u as usize] + 1;
+                        && self.lab[v as usize].len == self.lab[u as usize].len + w
+                        && self.lab[v as usize].hops == self.lab[u as usize].hops + 1;
                     if tight {
                         children.entry(u).or_default().push(v);
                         has_tight_parent.insert(v);
@@ -505,13 +523,12 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let epoch = self.pop_epoch;
         self.pop_stamp[x as usize] = epoch;
 
-        heap.push((self.dhat[x as usize], self.hops[x as usize], x));
+        heap.push((self.lab[x as usize].len, self.lab[x as usize].hops, x));
 
         while !heap.is_empty() && u0.len() < k + 1 {
             let (klen, khops, u) = heap.pop().unwrap();
-            if klen.total_cmp(&self.dhat[u as usize]) != std::cmp::Ordering::Equal
-                || khops != self.hops[u as usize]
-            {
+            let lu = self.lab[u as usize];
+            if klen.total_cmp(&lu.len) != std::cmp::Ordering::Equal || khops != lu.hops {
                 continue; // stale: u's label improved after this push
             }
             if self.pop_stamp[u as usize] != epoch {
@@ -556,13 +573,12 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let epoch = self.pop_epoch;
 
         for &x in s {
-            heap.push((self.dhat[x as usize], self.hops[x as usize], x));
+            heap.push((self.lab[x as usize].len, self.lab[x as usize].hops, x));
         }
 
         while let Some((klen, khops, u)) = heap.pop() {
-            if klen.total_cmp(&self.dhat[u as usize]) != std::cmp::Ordering::Equal
-                || khops != self.hops[u as usize]
-            {
+            let lu = self.lab[u as usize];
+            if klen.total_cmp(&lu.len) != std::cmp::Ordering::Equal || khops != lu.hops {
                 continue; // stale: u's label improved after this push
             }
             if self.pop_stamp[u as usize] != epoch {
@@ -586,19 +602,21 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
     fn relax_bounded(&mut self, u: u32, b: Key, heap: &mut KeyHeap) {
         let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
         count!(self, edge_scans, end - start);
+        let lu = self.lab[u as usize];
         for e in start..end {
             let v = self.g.indices[e];
             let w = self.g.weights[e];
-            let cand_len = self.dhat[u as usize] + w;
-            let cand_hops = self.hops[u as usize] + 1;
+            let cand_len = lu.len + w;
+            let cand_hops = lu.hops + 1;
             let cand = Key {
                 len: cand_len,
                 hops: cand_hops,
                 id: u as i64,
             };
+            let lv = self.lab[v as usize];
             let cur = Key {
-                len: self.dhat[v as usize],
-                hops: self.hops[v as usize],
+                len: lv.len,
+                hops: lv.hops,
                 id: self.pred[v as usize],
             };
             let vkey = Key {
@@ -607,8 +625,10 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 id: v as i64,
             };
             if cand <= cur && vkey < b {
-                self.dhat[v as usize] = cand_len;
-                self.hops[v as usize] = cand_hops;
+                self.lab[v as usize] = Label {
+                    len: cand_len,
+                    hops: cand_hops,
+                };
                 self.pred[v as usize] = u as i64;
                 heap.push((cand_len, cand_hops, v));
             }
@@ -743,7 +763,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
 /// as the mainline's `recover_pred`).
 fn recover_pred_transformed(
     pred_t: &[i64],
-    dhat_t: &[f64],
+    lab_t: &[Label],
     rep: &[u32],
     owner: &[u32],
     n: usize,
@@ -755,7 +775,7 @@ fn recover_pred_transformed(
             continue;
         }
         let r = rep[v] as usize;
-        if !dhat_t[r].is_finite() {
+        if !lab_t[r].len.is_finite() {
             continue;
         }
         let mut cur = r;
@@ -806,9 +826,9 @@ pub fn run<Q: DQueue>(
         eng.phase = eng_phase;
         eng.bmssp(levels, KEY_INF, &[tr.source2]);
         let (dist, pred) = phase!(eng, finalize, {
-            let dist: Vec<f64> = (0..g.n).map(|v| eng.dhat[tr.rep[v] as usize]).collect();
+            let dist: Vec<f64> = (0..g.n).map(|v| eng.lab[tr.rep[v] as usize].len).collect();
             let pred =
-                recover_pred_transformed(&eng.pred, &eng.dhat, &tr.rep, &tr.owner, g.n, source);
+                recover_pred_transformed(&eng.pred, &eng.lab, &tr.rep, &tr.owner, g.n, source);
             (dist, pred)
         });
         VariantRun {
@@ -835,7 +855,7 @@ pub fn run<Q: DQueue>(
                 .collect()
         );
         VariantRun {
-            dist: eng.dhat,
+            dist: eng.lab.iter().map(|l| l.len).collect(),
             pred,
             k,
             t,
