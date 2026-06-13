@@ -64,3 +64,34 @@ def test_unknown_method_still_raises():
     g = sp.csr_matrix((2, 2), dtype=np.float64)
     with pytest.raises(ValueError):
         shortest_paths(g, 0, method="bellman-ford")
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["bmssp-fast", "bmssp-tuned", "bmssp-hybrid", "bmssp-simpleq",
+     "bmssp-lazypiv", "bmssp-notransform"],
+)
+def test_variant_methods_match_dijkstra(method):
+    """Every public bmssp-<name> method is distance-bit-exact vs dijkstra
+    (the deep gate is tests/variants_correctness.rs; this pins the Python
+    dispatch)."""
+    rng = np.random.default_rng(777)
+    for n, density in [(2, 0.5), (120, 0.05), (500, 0.01)]:
+        g = random_graph(n, density, rng)
+        d_dij, _ = shortest_paths(g, 0, method="dijkstra")
+        d_var, _ = shortest_paths(g, 0, method=method)
+        assert np.array_equal(d_dij, d_var), (method, n, density)
+
+
+def test_auto_selects_dijkstra():
+    """method="auto" (the default) always selects dijkstra — the
+    BENCHMARKS.md verdict: no BMSSP crossover at practical sizes."""
+    rng = np.random.default_rng(99)
+    g = random_graph(300, 0.02, rng)
+    d_auto, p_auto = shortest_paths(g, 0, method="auto")
+    d_default, p_default = shortest_paths(g, 0)
+    d_dij, p_dij = shortest_paths(g, 0, method="dijkstra")
+    np.testing.assert_array_equal(d_auto, d_dij)
+    np.testing.assert_array_equal(p_auto, p_dij)
+    np.testing.assert_array_equal(d_default, d_dij)
+    np.testing.assert_array_equal(p_default, p_dij)

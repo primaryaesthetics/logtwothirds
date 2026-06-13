@@ -222,13 +222,21 @@ the same Algorithm 3 contracts (graph representation / base-case oracle /
 queue / parameters) — so their correctness arguments compose. The whole
 combination passes the same 520-graph + 10⁶-edge gate as every other variant.
 
-Structurally, at n ≤ 10⁷ and t = 12 the recursion has L = 2 levels: one
-FindPivots pass (k=1: a single Bellman-Ford round; the pivot reduction is
-effectively disabled because the measured optimum doesn't want the extra
-rounds), a flat-heap frontier over the pivots, and bounded multi-source
-Dijkstra oracles of ≤ 4096 sources per pull. It is the minimal instantiation
-of the BMSSP framework that the data supports — every knob turned one notch
-further (t ≥ 17 at 10⁵, D = L) makes it *literally* Dijkstra.
+Structurally, the phase profile (`examples/profile_fast.rs`) shows what the
+tuned knobs actually do at run time: for a **single-source** run the root
+call has |S| = 1 ≤ B = 1024, so the hybrid frontier rule fires *at the root*
+and the entire run is **one bounded multi-source Dijkstra call** (b = ∞)
+executing BMSSP's machinery-free path — zero FindPivots calls, zero queue
+pulls, one oracle call covering ~98% of vertices. The recursion, the flat
+heap, and FindPivots exist and are exercised by multi-pivot subproblems
+(and by the correctness suite via small-n configurations), but the measured
+single-source optimum is the configuration in which the Lemma 3.1 oracle
+swallows everything. bmssp-fast is therefore *literally* the variant
+ladder's endpoint made explicit: a Dijkstra run that carries BMSSP's
+lexicographic `(len, hops, id)` labels and bound checks — the data, asked
+for the fastest correct BMSSP instantiation, answered "Dijkstra in BMSSP
+clothing". Every knob turned one notch further (t ≥ 17 at 10⁵, D = L) just
+removes the clothing.
 
 ---
 
@@ -287,6 +295,43 @@ Negative results, stated plainly:
   Dijkstra-like (more oracle, fewer rounds, flatter queue, fewer levels).
   The measured optimum is the minimal BMSSP instantiation that is not
   literally Dijkstra.
+
+## Consolidation: low-level engineering pass (final)
+
+After the variant study froze, the OPTIMIZATION.md-style engineering rules
+(flat arenas, epoch stamps instead of clearing, no hot-loop allocations,
+feature-gated instrumentation) were applied to the shared engine, profile-
+driven via `examples/profile_fast.rs` (`--features phase-timer`). Gate for
+every step: the full `variants_correctness` suite (520 graphs + 10⁶-edge
+stress per variant, bit-exact distances), one commit per accepted change.
+
+Applied (bmssp-fast, n = 10⁶ random m = 4n, phase-timer build):
+
+| # | change | total after | Δ |
+|---|---|---:|---:|
+| 0 | baseline (engine as of the variant study) | 2.13 s | — |
+| 1 | oracles drop hash bookkeeping: the `best: FxHashMap<u32, Key>` was provably `key(v)` of the current labels (recompute on pop instead); the per-call popped set becomes an epoch-stamped `Vec<u32>` (no clearing) | 1.60 s | −25% |
+| 2 | SoA 4-ary `KeyHeap` replaces `BinaryHeap<Reverse<(Key, u32)>>` (heap entries always have `Key.id == vertex`, so `(len, hops, vertex)` in three parallel arrays reproduces `Key` order exactly) | 1.32 s | −18% |
+| 3 | `(dhat, hops)` fused into one 16-byte `Label` array (one cache line per relax-target read; `pred` separate, touched only on ties/successes) | 1.21 s | −2% (7-run medians) |
+
+Rejected after measurement (both within run-to-run noise): software
+prefetch of `lab[v]` in the oracle relax loop; iterator-zip edge scan to
+elide bounds checks. Skipped with justification: scratch pools for the
+Algorithm-3 body buffers and a FlatHeap arena (the profile shows
+`q_pulls = 0` for single-source bmssp-fast — that code never runs);
+de-hashing FindPivots (0.0% of time); an explicit recursion stack (the
+"recursion" is one root call). Instrumentation (phase timers, counters) is
+compiled out unless `--features phase-timer`; engine invariant checks are
+`debug_assert!` unless `--features verify`.
+
+Net: **2.13 s → 1.21 s (−43%)** for bmssp-fast; the same engine serves all
+variants, so the hybrid/notransform rows above also improved (their table
+entries predate this pass — the final authoritative matrix is in
+BENCHMARKS.md). The remaining gap to `lt-dijkstra` (~1.5× at 10⁶) is the
+contract itself: 16-byte lexicographic labels vs 8-byte distances, i64 hop
+arithmetic in every comparison, 20-byte vs 12-byte heap entries, and the
+`vkey < B` bound test — the price of being a BMSSP oracle rather than plain
+Dijkstra.
 
 ## Recommendation
 

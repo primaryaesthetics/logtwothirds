@@ -3,7 +3,10 @@
 Implementations
 ---------------
 * ``logtwothirds._logtwothirds.dijkstra``  (this crate, binary-heap Dijkstra)
-* ``logtwothirds._logtwothirds.bmssp``     (this crate, Duan-Mao-Mao-Shu-Yin)
+* ``logtwothirds._logtwothirds.bmssp``     (this crate, Duan-Mao-Mao-Shu-Yin,
+  faithful to the paper)
+* ``logtwothirds._logtwothirds.bmssp_variant("fast")``  (this crate,
+  ``method="bmssp-fast"``: the minimal BMSSP instantiation from VARIANTS.md)
 * ``scipy.sparse.csgraph.dijkstra``
 * ``rustworkx.dijkstra_shortest_path_lengths``
 
@@ -258,12 +261,17 @@ def make_impls(g: Graph) -> dict[str, "tuple"]:
     def lt_bm():
         return lt.bmssp(g.indptr, g.indices, g.weights, g.source, BMSSP_SEED)
 
+    def lt_bm_fast():
+        return lt.bmssp_variant(g.indptr, g.indices, g.weights, g.source,
+                                "fast", BMSSP_SEED)
+
     def sc_dij():
         return scipy_dijkstra(g.csr, directed=True, indices=g.source,
                               return_predecessors=False)
 
     impls["lt-dijkstra"] = (lt_dij, lambda: lt_dij()[0])
     impls["lt-bmssp"] = (lt_bm, lambda: lt_bm()[0])
+    impls["lt-bmssp-fast"] = (lt_bm_fast, lambda: lt_bm_fast()[0])
     impls["scipy"] = (sc_dij, lambda: np.asarray(sc_dij(), dtype=np.float64))
 
     if g.rxg is not None:
@@ -353,7 +361,7 @@ def fmt_time(t: float | None) -> str:
 
 
 def write_markdown(results: list[dict], path: Path, meta: dict) -> None:
-    impl_order = ["lt-dijkstra", "lt-bmssp", "scipy", "rustworkx"]
+    impl_order = ["lt-dijkstra", "lt-bmssp", "lt-bmssp-fast", "scipy", "rustworkx"]
     lines = ["# SSSP benchmark results", ""]
     lines += [f"- {k}: {v}" for k, v in meta.items()]
     lines.append("")
@@ -400,6 +408,7 @@ def write_plot(results: list[dict], path: Path) -> None:
     impl_style = {
         "lt-dijkstra": ("tab:blue", "o"),
         "lt-bmssp": ("tab:red", "s"),
+        "lt-bmssp-fast": ("tab:orange", "v"),
         "scipy": ("tab:green", "^"),
         "rustworkx": ("tab:purple", "d"),
     }
