@@ -216,7 +216,8 @@ def parse_dimacs_gr(path: Path) -> tuple[int, np.ndarray, np.ndarray, np.ndarray
 def gen_dimacs(build_rx: bool) -> Graph | None:
     if not DIMACS_FILE.exists():
         print(f"NOTE: {DIMACS_FILE} not found - skipping the DIMACS family. "
-              f"Download USA-road-d.NY.gr into benchmarks/data/ to enable it.")
+              f"Download USA-road-d.NY.gr (9th DIMACS Challenge shortest-path "
+              f"data set) into benchmarks/data/ to enable it.")
         return None
     n, src, dst, wgt = parse_dimacs_gr(DIMACS_FILE)
     coo = sp.coo_array((wgt, (src, dst)), shape=(n, n), dtype=np.float64)

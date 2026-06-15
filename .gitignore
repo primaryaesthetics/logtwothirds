@@ -32,3 +32,7 @@ Thumbs.db
 # --- Third-party paper (arXiv:2504.17033); not for redistribution ---
 paper.pdf
 paper_text.txt
+
+# --- Third-party benchmark data (9th DIMACS Challenge); download locally ---
+# benchmarks/run.py prints a clear message if this is missing.
+benchmarks/data/USA-road-d.NY.gr
