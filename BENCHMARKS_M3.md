@@ -46,7 +46,7 @@ timing. **Nothing regressed.**
 | gate | command | result |
 |---|---|---|
 | Rust unit + integration tests | `cargo test` (test profile, opt-level 2, debug-assertions on) | **36 passed, 0 failed** (17 lib unit · 1 differential · 2 not_dijkstra · 3 property_vs_dijkstra · 13 variants_correctness) · 0 doc-tests |
-| Step E differential gate | `tests/differential.rs` (order-exact vs pinned Python reference) | green |
+| Differential gate | `tests/differential.rs` (order-exact vs pinned Python reference) | green |
 | variants bit-exactness | `tests/variants_correctness.rs` (520-graph + million-edge suites, 6 variants) | green |
 | Python test suite | `pytest` (after `maturin develop --release`) | **155 passed, 0 failed** |
 | benchmark cross-checks | every cell, `np.allclose(rtol/atol 1e-9)` vs `lt-dijkstra` | **no mismatches** (harness exit 0) |

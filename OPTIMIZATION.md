@@ -13,7 +13,7 @@ neutral engineering. Companion to:
   fixed seeds) and the verdict. Its own "Optimizations: proposed, applied,
   rejected" section is a *different* pass on a *different* engine: the
   **mainline** faithful `bmssp` (`src/bmssp.rs`, 49.8 s → 27.2 s at n=10⁶,
-  gated by the Step E differential test). Do not conflate the two — see
+  gated by the differential test). Do not conflate the two — see
   [Scope](#scope-two-distinct-optimization-passes).
 
 ## Scope: two distinct optimization passes
@@ -21,7 +21,7 @@ neutral engineering. Companion to:
 | | mainline pass (BENCHMARKS.md) | this pass (OPTIMIZATION.md) |
 |---|---|---|
 | engine | `src/bmssp.rs` + `src/block_queue.rs` (faithful) | `src/variants/engine.rs` (variants), config = `bmssp-fast` |
-| gate | Step E differential (200 graphs, bit-exact distances **and** settlement order vs the Python reference) | `variants_correctness` (≥520 property graphs + 10⁶-edge stress per variant, **bit-exact distances** + predecessor consistency; settlement order deliberately not pinned) |
+| gate | differential gate (200 graphs, bit-exact distances **and** settlement order vs the Python reference) | `variants_correctness` (≥520 property graphs + 10⁶-edge stress per variant, **bit-exact distances** + predecessor consistency; settlement order deliberately not pinned) |
 | changes | FxHash, base-case scratch reuse, pull union buffer, mimalloc | hash-free oracles + epoch stamps, SoA `KeyHeap`, fused `Label` |
 | result | 49.8 s → 27.2 s (−45%) at n=10⁶ | 2.13 s → 1.21 s (−43%) at n=10⁶ |
 
@@ -53,17 +53,17 @@ n = 10⁶, m = 4n uniform random (seed `0xC0FFEE`), portable release build with
 | # | commit | change | total | Δ |
 |---|---|---|---:|---:|
 | 0 | (49.8 s baseline of the *mainline* pass is unrelated) | engine as of the variant study | 2.13 s | — |
-| 1 | `22c88e4` | oracles drop hash bookkeeping; epoch-stamped popped-set | 1.60 s | −25% |
-| 2 | `aabf7cd` | SoA 4-ary `KeyHeap` replaces `BinaryHeap<Reverse<(Key,u32)>>` | 1.32 s | −18% |
-| 3 | `19ebabe` | fuse `(dhat, hops)` into one 16-byte `Label` array | 1.21 s | −2% |
+| 1 | `01221a2` | oracles drop hash bookkeeping; epoch-stamped popped-set | 1.60 s | −25% |
+| 2 | `7d63e75` | SoA 4-ary `KeyHeap` replaces `BinaryHeap<Reverse<(Key,u32)>>` | 1.32 s | −18% |
+| 3 | `cbdd4bf` | fuse `(dhat, hops)` into one 16-byte `Label` array | 1.21 s | −2% |
 
-(Commit `6ade296` precedes these: it adds the feature-gated timers/counters,
+(Commit `2d71dbf` precedes these: it adds the feature-gated timers/counters,
 the `verify` flag, and `examples/profile_fast.rs` itself — measurement
 infrastructure, no hot-path change.)
 
 **Net: 2.13 s → 1.21 s, −43%** at n=10⁶, the suite green throughout.
 
-### 1. Hash-free oracles + epoch-stamped membership (`22c88e4`)
+### 1. Hash-free oracles + epoch-stamped membership (`01221a2`)
 
 The two heap oracles (`dijkstra_base`, the paper `base_case`) each kept a
 `best: FxHashMap<u32, Key>` of the smallest live value per vertex and an
@@ -83,7 +83,7 @@ U-set semantics are unchanged, including the subtlety that a vertex re-settled
 on a tie stays in U. Biggest single win (−25%): the oracle is the entire hot
 path (see the profile), and it was spending its time in hash lifecycles.
 
-### 2. Structure-of-arrays 4-ary `KeyHeap` (`aabf7cd`)
+### 2. Structure-of-arrays 4-ary `KeyHeap` (`7d63e75`)
 
 The oracles used `std::collections::BinaryHeap<Reverse<(Key, u32)>>`, i.e. a
 binary heap of 20-byte `(Key{f64,i64,i64}, u32)` entries. Replaced with a
@@ -102,7 +102,7 @@ Same layout idea as `src/dijkstra.rs`'s heap: 4-ary fan-out shortens sift
 chains, and sifting reads the dense `len` array first, touching `hops`/`vertex`
 only on float ties. −18%.
 
-### 3. Fused 16-byte `Label` (`19ebabe`)
+### 3. Fused 16-byte `Label` (`cbdd4bf`)
 
 `dhat: Vec<f64>` and `hops: Vec<i64>` became one `Vec<Label{len: f64, hops:
 i64}>`. The oracle relax loop reads *both* fields for every scanned edge; one

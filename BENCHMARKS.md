@@ -58,7 +58,7 @@ Comparability caveats, stated up front:
 * `lt-bmssp`'s time *includes* its constant-degree transform — that is part
   of the algorithm's own pipeline, not a format conversion (it is ~2% of its
   time at n=10⁶, so it does not change any conclusion). It also includes
-  building the settlement log (Step E instrumentation that ships in the
+  building the settlement log (differential-gate instrumentation that ships in the
   production path). `lt-bmssp-fast` has neither (no transform; instrumentation
   compiled out unless `--features phase-timer`).
 * `lt-dijkstra`, `lt-bmssp` and `lt-bmssp-fast` return distances **and**
@@ -167,7 +167,7 @@ parallel pass on the **`bmssp-fast` variant** (a different engine under a
 different gate, 2.13 s → 1.21 s at n=10⁶) is recorded in **OPTIMIZATION.md**;
 the two do not overlap.
 
-Rule followed throughout (as required): **the Step E differential test
+Rule followed throughout (as required): **the differential test
 (`cargo test --test differential` — 200 graphs, bit-exact distances AND
 settlement order vs the pinned Python reference) was run after every single
 optimization and stayed green every time.** Only behavior-neutral changes
@@ -176,7 +176,7 @@ a float operation order.
 
 Applied (cumulative, phase-timer build, n=10⁶ random):
 
-| # | change | total after | Δ | Step E |
+| # | change | total after | Δ | differential |
 |---|---|---:|---:|---|
 | 0 | baseline | 49.8 s | — | green |
 | 1 | FxHash instead of SipHash for every internal map/set (iteration order of these containers is never observed) | 40.1 s | −19% | green |
@@ -202,10 +202,10 @@ Proposed but **not** applied (and why):
   buffers: the borrow gymnastics across recursion levels add real
   complexity for a cost mimalloc already cut to ~1 s.
 * **Skipping the settlement log in non-instrumented runs**: legal (dist/pred
-  unchanged) but worth <2%; not worth forking the API contract that Step E
-  and the instrumented binding rely on.
+  unchanged) but worth <2%; not worth forking the API contract that the
+  differential gate and the instrumented binding rely on.
 * Anything touching the quickselect, set orders, or relaxation order:
-  **forbidden** — it would change the settlement log and break the Step E
+  **forbidden** — it would change the settlement log and break the differential
   contract even where distances stay correct.
 
 ## bmssp-fast: how far engineering can push BMSSP

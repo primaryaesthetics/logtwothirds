@@ -1,12 +1,13 @@
 # FAILCASE.md — differential-divergence record (Rust port vs `_reference.py`)
 
-**Status: NO FAILING CASE EXISTS.** As of 2026-06-12 (commit `3ebb3b2` +
+**Status: NO FAILING CASE EXISTS.** As of 2026-06-12 (commit `00607b3` +
 extended test sweeps), no graph is known on which the Rust port
 (`src/bmssp.rs`, `src/block_queue.rs`) diverges from the Python reference
 under the pinned-determinism protocol of `tests/diff_driver.py`. This file
 records the investigation that established that, and is the designated home
-for a minimal reproducing graph if one is ever found (per the Step E
-contingency protocol: localize the first divergence in the settlement-log
+for a minimal reproducing graph if one is ever found (per the
+differential-gate contingency protocol: localize the first divergence in the
+settlement-log
 prefix, record the minimal graph here, stop after 3 failed root-cause
 attempts).
 
@@ -18,11 +19,11 @@ both settlement logs attached". Findings:
 1. No `FAILCASE.md` existed in the working tree, in any commit on any local
    or remote branch (`git log --all -- "*FAILCASE*"` empty; `origin/main` in
    sync), in the stash, or elsewhere on the machine.
-2. The Step E acceptance run had passed 200/200 with distances **and**
+2. The differential acceptance run had passed 200/200 with distances **and**
    settlement order bit-exact, so the contingency that creates this file
    never fired.
 3. The working-tree algorithm sources were byte-identical to the audited
-   Step E commit (`e59cc47`).
+   Rust-port commit (`55fa54a`).
 
 Extended divergence hunt at that commit, all via `tests/differential.rs` +
 `tests/diff_driver.py` (bit-exact comparison of distances and settlement

@@ -5,7 +5,7 @@
 //! stays untouched; variants only configure this engine. Unlike the mainline,
 //! the engine makes **no settlement-order promises** — the correctness bar
 //! for every variant is bit-exact distances vs Dijkstra (see
-//! `tests/variants_correctness.rs`), not the Step E settlement-order gate.
+//! `tests/variants_correctness.rs`), not the mainline settlement-order gate.
 //!
 //! Invariants preserved from the paper regardless of configuration:
 //! - the total order on labels (Assumption 2.1 via `Key`), the `<=`

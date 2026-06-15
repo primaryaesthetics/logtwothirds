@@ -8,7 +8,7 @@ all lemma references below point into).
 
 **Ground rules followed:**
 
-- The mainline (`src/bmssp.rs`, `src/block_queue.rs`) is untouched; the Step E
+- The mainline (`src/bmssp.rs`, `src/block_queue.rs`) is untouched; the
   differential gate still passes (`cargo test --test differential`, re-run
   after this change set: green).
 - Every variant lives in `src/variants/` and is exposed as
@@ -369,7 +369,7 @@ one conceptual change, 5–11× of the win, and the clearest correctness story
 
 Keep the mainline `method="bmssp"` as the faithful, settlement-order-pinned
 reference implementation; the variants are not substitutes for it in the
-Step E differential role.
+differential-gate role.
 
 ---
 
