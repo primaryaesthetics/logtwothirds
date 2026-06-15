@@ -1,9 +1,50 @@
 # logtwothirds
 
-Fast single-source shortest paths with a Rust core (PyO3 + maturin) and a thin
-Python wrapper — plus a verified, instrumented implementation of the BMSSP
-O(m log^(2/3) n) algorithm of Duan–Mao–Mao–Shu–Yin ("Breaking the Sorting
-Barrier...", arXiv:2504.17033), benchmarked honestly against it.
+A verified, honestly benchmarked Rust implementation of the 2025 algorithm that
+broke the **sorting barrier** for shortest paths — packaged as a small Python
+library (Rust core via PyO3 + maturin), and measured against plain Dijkstra to
+answer the question the theory leaves open: is it actually faster?
+
+## The sorting barrier, and the algorithm that broke it
+
+Dijkstra's algorithm settles vertices in order of increasing distance from the
+source. That ordering is the whole trick — and also a tax. Producing `n` numbers
+in sorted order costs `Ω(n log n)` comparisons, so any shortest-path algorithm
+that hands you vertices in distance order inherits that `log n` factor. On a
+sparse graph — `m` edges with `m` close to `n` — that sorting term is what
+dominates the clock. For sixty years this looked fundamental: to find shortest
+paths you seemed to have to sort, and sorting has a floor. Call it the *sorting
+barrier*.
+
+In 2025, Duan, Mao, Mao, Shu, and Yin broke it. Their algorithm — *Breaking the
+Sorting Barrier for Directed Single-Source Shortest Paths*
+([arXiv:2504.17033](https://arxiv.org/abs/2504.17033)) — finds the same shortest
+paths in `O(m log^(2/3) n)` time, strictly below Dijkstra's `O(m + n log n)` on
+sparse graphs. The idea is to stop fully sorting. Rather than pulling vertices
+one at a time in distance order, it recursively shrinks the frontier: a
+`FindPivots` step picks a small set of vertices whose settlement unlocks
+everything behind them, and a divide-and-conquer recursion (`BMSSP`) settles
+whole blocks of vertices without ever materializing the complete sorted
+sequence. The `log^(2/3)` is what the bookkeeping costs once you no longer pay
+for the sort. The "two-thirds" in the exponent is where this project's name
+comes from.
+
+This repository implements that algorithm, checks it against the paper line by
+line, and then asks the question the asymptotics don't: does breaking the
+barrier make anything *run* faster? The honest answer — measured, not asserted —
+is **no, not at any size you can actually run.** The faithful implementation is
+26–128× slower than a good Dijkstra; the most aggressively engineered variant
+closes that to 1.4–5×, but never crosses over. The asymptotic advantage is real
+and it does narrow with `n` exactly as `log^(2/3) n` vs `log n` predicts — it
+just doesn't pay off until somewhere around `n ≈ 2^400000` — for scale, the
+observable universe holds roughly `2^266` atoms. That gap between what the
+theory promises and what
+the hardware delivers is the actual subject of this repo, documented honestly
+below and in [BENCHMARKS.md](BENCHMARKS.md).
+
+So the library ships **Dijkstra** as the thing you should use, and keeps the
+BMSSP engines as instrumented, verified research objects — the sharpest way to
+state precisely *where* the algorithm's constant factor lives.
 
 ## Install (from source)
 
@@ -55,8 +96,8 @@ cross-checked across five implementations):
 | Barabási–Albert, n=10⁶ | 1.28 s | 43.9 s (34×) | 1.79 s (1.4×) | 1.06 s | 1.86 s |
 | USA-road-d.NY | 25.9 ms | 1.65 s (64×) | 130 ms (5.0×) | 40.7 ms | 126 ms |
 
-The faithful gap narrows with n exactly as O(m log^(2/3) n) vs O(m log n)
-predicts, but extrapolates to a crossover near n ≈ 2^400,000; the
+The faithful gap narrows with `n` exactly as `O(m log^(2/3) n)` vs `O(m log n)`
+predicts, but extrapolates to a crossover near `n ≈ 2^400000`; the
 maximally-engineered `bmssp-fast` is structurally a Dijkstra run carrying
 BMSSP's heavier labels, so its remaining 1.4–5× gap is a constant factor,
 not a vanishing one. There is no practical size at which any BMSSP engine
@@ -132,3 +173,5 @@ Numbers across these are consistent as of 2026-06-13; where a research-phase
 table (VARIANTS.md) and the final matrix (BENCHMARKS.md) differ for
 `bmssp-fast`, BENCHMARKS.md is authoritative and the older table is marked as
 superseded in place.
+</content>
+</invoke>
