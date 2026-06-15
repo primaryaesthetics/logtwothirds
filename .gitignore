@@ -1,10 +1,34 @@
-/target
-/.venv
+# --- Rust / build artifacts ---
+/target/
+
+# --- Python ---
 __pycache__/
 *.pyc
-*.so
 *.pyd
-.pytest_cache/
+*.so
+*.pdb
+*.egg-info/
+dist/
+build/
 python/logtwothirds/*.so
 python/logtwothirds/*.pyd
-*.pdb
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Test / coverage caches ---
+.pytest_cache/
+.hypothesis/
+
+# --- Tooling / editor local state ---
+.claude/
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+
+# --- Third-party paper (arXiv:2504.17033); not for redistribution ---
+paper.pdf
+paper_text.txt

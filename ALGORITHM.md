@@ -520,7 +520,7 @@ Recursion depth `O((log n)^(1/3))`; `Σ|U_x|` per depth ≤ `n`; total over dept
 
 ## 9. Cross-check status
 
-Cross-referenced once more against the extracted paper text (see repo `paper.pdf`):
+Cross-referenced once more against the paper (Duan–Mao–Mao–Shu–Yin, arXiv:2504.17033 — https://arxiv.org/abs/2504.17033):
 Algorithm 1 lines 1–17, Algorithm 2 lines 1–17, Algorithm 3 lines 1–22, Lemma 3.1, 3.2, 3.3
 (operations, costs, internal blocks/BST/split/pull mechanics), Remarks 3.4, 3.5, 3.8,
 Lemmas 3.6, 3.7, 3.9, 3.10, 3.11, 3.12, the constant-degree transform, Assumption 2.1 and its

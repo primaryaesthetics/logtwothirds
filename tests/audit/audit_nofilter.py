@@ -1,3 +1,6 @@
+# Historical audit script (not part of the test suite). One-off research
+# experiment from the AUDIT.md investigation; run manually from the repo root
+# with `python tests/audit/audit_nofilter.py`. Kept for reproducibility.
 """Audit experiment: paper-literal BMSSP (QUESTIONS.md item-3 filter REMOVED).
 
 Runs Algorithm 3 exactly as in the paper (no settled-vertex filter on pulled

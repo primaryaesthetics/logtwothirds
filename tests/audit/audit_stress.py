@@ -1,3 +1,6 @@
+# Historical audit script (not part of the test suite). One-off stress-check
+# from the AUDIT.md investigation; run manually from the repo root with
+# `python tests/audit/audit_stress.py`. Kept for reproducibility.
 """Audit stress-check: recursion invariants of bmssp on random graphs.
 
 Wraps ref.bmssp with pre/postcondition asserts (Lemma 3.1/3.7/3.9 of the

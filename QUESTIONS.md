@@ -1,7 +1,8 @@
 # Open questions / spec ambiguities
 
 > **Status: CLOSED (audit, 2026-06-12).** Every item below has been audited
-> against the paper (`paper.pdf`, arXiv:2504.17033v2) and answered in an
+> against the paper (Duan–Mao–Mao–Shu–Yin, arXiv:2504.17033v2 —
+> https://arxiv.org/abs/2504.17033) and answered in an
 > **Audit answer** block appended to the item. Verdicts and evidence are in
 > [AUDIT.md](AUDIT.md).
 

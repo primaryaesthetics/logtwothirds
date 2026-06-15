@@ -1,8 +1,8 @@
 # AUDIT.md — implementation audit against the paper
 
 Audit of `python/logtwothirds/_reference.py` against **the paper**
-(`paper.pdf`, Duan–Mao–Mao–Shu–Yin, arXiv:2504.17033v2, "Breaking the
-Sorting Barrier for Directed Single-Source Shortest Paths"), treating
+(Duan–Mao–Mao–Shu–Yin, arXiv:2504.17033v2, "Breaking the
+Sorting Barrier for Directed Single-Source Shortest Paths"; https://arxiv.org/abs/2504.17033), treating
 `ALGORITHM.md` as a secondary source that was itself audited. Date:
 2026-06-12.
 
@@ -13,9 +13,8 @@ are answered with paper citations (answers appended in `QUESTIONS.md`).
 
 Method:
 
-- Full read of the paper (text extraction `paper_text.txt`, all 17 pages,
-  spot-checked against `paper.pdf`; pseudocode **indentation** verified from
-  PDF glyph x-coordinates where text extraction loses it).
+- Full read of the paper (all 17 pages, pseudocode **indentation** verified
+  from PDF glyph x-coordinates where text extraction loses it).
 - Line-by-line cross-reference of `find_pivots` / `base_case` / `bmssp` /
   `BlockDS` against Algorithms 1–3 and Lemma 3.3.
 - Invariant stress-check (`audit_stress.py`): `bmssp` wrapped with
