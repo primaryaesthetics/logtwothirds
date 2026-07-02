@@ -160,6 +160,26 @@ fn stress_suite(variant: &str) {
     assert_pred_consistent(&g, &run.dist, &run.pred, 0, &format!("{variant}: stress pred"));
 }
 
+/// The 10^6-edge stress graph with SmallInt weights: at this size the exact
+/// `(len, hops)` ties of integer weights are pervasive — a road-network-like
+/// regime the small property graphs cannot reproduce at scale. Guards
+/// against the `<=`-relaxation duplicate-heap-entry cascade that once made
+/// the oracles' work combinatorial on tie-rich graphs: without the
+/// duplicate-pop skip in the oracle loops this test hangs and exhausts
+/// memory rather than merely failing.
+fn stress_ties_suite(variant: &str) {
+    let n = 250_000;
+    let m = 1_000_000;
+    let g = random_graph(n, m, 0xFEED_F00D, WeightKind::SmallInt, true);
+    assert_eq!(g.indices.len(), m);
+    let run = run_variant(variant, &g, 0, 0x600D_5EED, None)
+        .expect("variant errored")
+        .expect("unknown variant");
+    let want = dijkstra_dist(&g, 0);
+    assert_dist_equal(&run.dist, &want, &format!("{variant}: tie-rich stress"));
+    assert_pred_consistent(&g, &run.dist, &run.pred, 0, &format!("{variant}: tie-rich pred"));
+}
+
 macro_rules! variant_tests {
     ($($name:ident => $variant:literal),* $(,)?) => {
         $(
@@ -171,6 +191,10 @@ macro_rules! variant_tests {
                 #[test]
                 fn stress_million_edges() {
                     super::stress_suite($variant);
+                }
+                #[test]
+                fn stress_million_edges_tie_rich() {
+                    super::stress_ties_suite($variant);
                 }
             }
         )*

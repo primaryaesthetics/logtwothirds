@@ -1,10 +1,11 @@
 //! Head-to-head timing of the production Dijkstra and the `bmssp-fast`
-//! variant on one random graph (m = 4n, weights in [0.01, 1), source 0 —
-//! the BENCHMARKS.md family). Median of five runs each, plus a distance
-//! cross-check so a timing win can never hide a wrong answer.
+//! variant on one graph (random m = 4n, weights in [0.01, 1), source 0 —
+//! the BENCHMARKS.md family — or a DIMACS `.gr` file). Median of five runs
+//! each, plus a distance cross-check so a timing win can never hide a wrong
+//! answer.
 //!
 //! ```text
-//! cargo run --release --example bench_fast -- [n]
+//! cargo run --release --example bench_fast -- [n] [gr-file]
 //! ```
 
 use _logtwothirds::block_queue::SplitMix64;
@@ -12,6 +13,29 @@ use _logtwothirds::bmssp::{build_csr, Csr};
 use _logtwothirds::dijkstra;
 use _logtwothirds::variants::fast;
 use std::time::Instant;
+
+fn dimacs_graph(path: &str) -> Csr {
+    let text = std::fs::read_to_string(path).expect("read .gr file");
+    let mut n = 0usize;
+    let mut edges = Vec::new();
+    for line in text.lines() {
+        let mut it = line.split_ascii_whitespace();
+        match it.next() {
+            Some("p") => {
+                assert_eq!(it.next(), Some("sp"));
+                n = it.next().unwrap().parse().unwrap();
+            }
+            Some("a") => {
+                let u: u32 = it.next().unwrap().parse::<u32>().unwrap() - 1;
+                let v: u32 = it.next().unwrap().parse::<u32>().unwrap() - 1;
+                let w: f64 = it.next().unwrap().parse().unwrap();
+                edges.push((u, v, w));
+            }
+            _ => {}
+        }
+    }
+    build_csr(n, &edges)
+}
 
 fn random_graph(n: usize, seed: u64) -> Csr {
     let m = 4 * n;
@@ -34,8 +58,18 @@ fn median(mut xs: Vec<f64>) -> f64 {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let n: usize = args.get(1).map(|s| s.parse().unwrap()).unwrap_or(1_000_000);
-    let g = random_graph(n, 0xC0FFEE);
-    eprintln!("graph: random m=4n, n={n}, m={}", g.indices.len());
+    let g = match args.get(2) {
+        Some(path) => {
+            eprintln!("graph: {path}");
+            dimacs_graph(path)
+        }
+        None => {
+            eprintln!("graph: random m=4n, n={n}");
+            random_graph(n, 0xC0FFEE)
+        }
+    };
+    let n = g.n;
+    eprintln!("n={n}, m={}", g.indices.len());
 
     // Dijkstra takes the Python-facing CSR types (i64 indptr, i32 indices).
     let indptr: Vec<i64> = g.indptr.iter().map(|&p| p as i64).collect();

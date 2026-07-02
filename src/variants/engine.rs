@@ -601,12 +601,16 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let x = s[0];
         let k = self.k;
 
-        let mut u0: Vec<u32> = vec![x];
+        // `u0` starts empty; `x` is the only initial heap entry, so it pops
+        // first (non-stale — nothing relaxed yet) and the loop adds it as
+        // `u0[0]` and scans its edges, exactly the paper's `U0 = {x}` start.
+        // (Pre-seeding `u0` with a pre-stamped `x` would defeat the duplicate
+        // -pop skip below: it must not treat `x` as already *scanned*.)
+        let mut u0: Vec<u32> = Vec::new();
         let mut heap = std::mem::take(&mut self.scratch.heap);
         heap.clear();
         self.pop_epoch += 1;
         let epoch = self.pop_epoch;
-        self.pop_stamp[x as usize] = epoch;
 
         heap.push((self.lab[x as usize].len, self.lab[x as usize].hops, x));
 
@@ -619,10 +623,14 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 continue; // stale: u's label improved after this push
             }
             unsafe {
-                if *self.pop_stamp.get_unchecked(u as usize) != epoch {
-                    *self.pop_stamp.get_unchecked_mut(u as usize) = epoch;
-                    u0.push(u);
+                if *self.pop_stamp.get_unchecked(u as usize) == epoch {
+                    // Duplicate non-stale pop; the label is provably unchanged
+                    // since `u` was first scanned this call (see the identical
+                    // skip in `dijkstra_base`), so rescanning relaxes nothing.
+                    continue;
                 }
+                *self.pop_stamp.get_unchecked_mut(u as usize) = epoch;
+                u0.push(u);
             }
             self.relax_bounded(u, b, &mut heap);
         }
@@ -673,10 +681,20 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 continue; // stale: u's label improved after this push
             }
             unsafe {
-                if *self.pop_stamp.get_unchecked(u as usize) != epoch {
-                    *self.pop_stamp.get_unchecked_mut(u as usize) = epoch;
-                    u0.push(u);
+                if *self.pop_stamp.get_unchecked(u as usize) == epoch {
+                    // Duplicate non-stale pop: the `<=` relaxation pushes `v`
+                    // again on an exact `(len, hops, pred)` tie, so equal-key
+                    // duplicates are normal on tie-rich graphs (integer road
+                    // weights). The label is provably unchanged since `u` was
+                    // first scanned this call (pops are non-decreasing and the
+                    // staleness check pins key == label at both pops, while
+                    // labels only decrease), so rescanning the edges would
+                    // relax nothing — skip it. Without the skip the duplicates
+                    // cascade combinatorially and blow the heap up.
+                    continue;
                 }
+                *self.pop_stamp.get_unchecked_mut(u as usize) = epoch;
+                u0.push(u);
             }
             self.relax_bounded(u, b, &mut heap);
         }
@@ -729,6 +747,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 // values are never NaN or -0.0); encoded i32 hops compare
                 // exactly like the decoded i64 values (monotone encoding);
                 // the pred tie-break only decides on a full `(len, hops)` tie.
+                //
                 let relax = match cand_len.total_cmp(&lv.len) {
                     std::cmp::Ordering::Less => true,
                     std::cmp::Ordering::Greater => false,
