@@ -1,0 +1,22 @@
+# bench_fast second-pass record — 2026-07-03, portable release build, commit 39ea455
+# same-process medians of 5 (1 warmup discarded); distances cross-checked in-binary
+## random m=4n, n=100000
+graph: random m=4n, n=100000
+n=100000, m=400000
+dijkstra   median    0.030 s
+bmssp-fast median    0.058 s   (1.94x dijkstra)
+## random m=4n, n=1000000
+graph: random m=4n, n=1000000
+n=1000000, m=4000000
+dijkstra   median    0.759 s
+bmssp-fast median    0.909 s   (1.20x dijkstra)
+## USA-road-d.NY
+graph: benchmarks/data/USA-road-d.NY.gr
+n=264346, m=733846
+dijkstra   median    0.036 s
+bmssp-fast median    0.055 s   (1.55x dijkstra)
+## random m=4n, n=10000000
+graph: random m=4n, n=10000000
+n=10000000, m=40000000
+dijkstra   median   14.287 s
+bmssp-fast median   15.702 s   (1.10x dijkstra)
