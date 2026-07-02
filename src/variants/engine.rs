@@ -711,6 +711,13 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 // out before the `+ 1` so the i32 encoding never overflows.
                 return;
             }
+            // With B = KEY_INF the bound never suppresses anything: a winning
+            // candidate has `vkey = (cand_len, cand_hops, v)` with
+            // `cand_hops <= INF_INT` and `v < INF_INT`, which is `< KEY_INF`
+            // whatever `cand_len` is. Hoisting the check lets the (single
+            // oracle call of the tuned fast config, B always infinite) skip
+            // the per-edge bound comparison entirely.
+            let unbounded = b >= KEY_INF;
             for e in start..end {
                 let v = *self.g.indices.get_unchecked(e);
                 let w = *self.g.weights.get_unchecked(e);
@@ -731,12 +738,15 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                         std::cmp::Ordering::Equal => (u as i32) <= lv.pred,
                     },
                 };
-                let vkey = Key {
-                    len: cand_len,
-                    hops: cand_hops as i64,
-                    id: v as i64,
+                let bound_ok = unbounded || {
+                    let vkey = Key {
+                        len: cand_len,
+                        hops: cand_hops as i64,
+                        id: v as i64,
+                    };
+                    vkey < b
                 };
-                if relax && vkey < b {
+                if relax && bound_ok {
                     *self.lab.get_unchecked_mut(v as usize) = Label {
                         len: cand_len,
                         hops: cand_hops,
