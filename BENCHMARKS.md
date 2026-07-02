@@ -3,10 +3,11 @@
 **TL;DR (honest): BMSSP loses on wall-clock time everywhere we measured.
 The faithful implementation (`method="bmssp"`) trails this crate's own
 Dijkstra by 26×–128×. The best BMSSP instantiation we could build
-(`method="bmssp-fast"`, the endpoint of the VARIANTS.md study plus a
-low-level engineering pass) closes that to 1.4×–5.0× — and still loses
-everywhere, with every trend pointing away from a crossover at any storable
-size. Accordingly, `method="auto"` selects Dijkstra always. The value of
+(`method="bmssp-fast"`, the endpoint of the VARIANTS.md study plus two
+low-level engineering passes) closes that to ~1.1×–2× (1.4×–5.0× in this
+document's matrix, which predates the second pass — see OPTIMIZATION.md) —
+and still loses everywhere, with every trend pointing away from a crossover
+at any storable size. Accordingly, `method="auto"` selects Dijkstra always. The value of
 the BMSSP implementations is fidelity, instrumentation, and the measured
 verdict itself — not speed. `lt-dijkstra` is competitive with SciPy
 (1.2–1.9× faster up to 10⁵, 6–25% slower at 10⁶–10⁷, 1.6× faster on the NY

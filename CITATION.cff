@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use this software or its benchmark results, please cite it as below."
+type: software
+title: "logtwothirds: single-source shortest paths — Dijkstra and a faithful, benchmarked implementation of the Duan–Mao–Mao–Shu–Yin sorting-barrier BMSSP algorithm"
+authors:
+  - family-names: Khobotov
+    given-names: Nikolai
+version: 0.1.0
+date-released: 2026-07-02
+url: "https://github.com/primaryaesthetics/logtwothirds"
+repository-code: "https://github.com/primaryaesthetics/logtwothirds"
+license: MIT
+keywords:
+  - shortest paths
+  - SSSP
+  - Dijkstra
+  - BMSSP
+  - sorting barrier
+  - graph algorithms
+  - Rust
+abstract: >-
+  A Rust/Python shortest-paths library containing a production Dijkstra and a
+  semantically faithful port of the Duan–Mao–Mao–Shu–Yin O(m log^(2/3) n)
+  "sorting barrier" algorithm (arXiv:2504.17033), verified bit-exactly against
+  a pinned Python reference. The research record documents an algorithm-level
+  variant study and two low-level optimization passes that reduce the
+  engineered BMSSP variant to ~1.12–1.24x of Dijkstra's wall-clock time at
+  n = 10^6–10^7 — ahead of published implementations — together with the
+  honest negative result: no practical input size at which BMSSP overtakes
+  Dijkstra was found.
+references:
+  - type: article
+    title: "Breaking the Sorting Barrier for Directed Single-Source Shortest Paths"
+    authors:
+      - family-names: Duan
+        given-names: Ran
+      - family-names: Mao
+        given-names: Jiayi
+      - family-names: Mao
+        given-names: Xiao
+      - family-names: Shu
+        given-names: Xinkai
+      - family-names: Yin
+        given-names: Longhui
+    year: 2025
+    url: "https://arxiv.org/abs/2504.17033"

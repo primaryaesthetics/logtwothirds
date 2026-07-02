@@ -5,16 +5,30 @@ build-backend = "maturin"
 [project]
 name = "logtwothirds"
 version = "0.1.0"
-description = "Fast single-source shortest paths with a Rust core (PyO3 + maturin)"
+description = "Fast single-source shortest paths with a Rust core (PyO3 + maturin): production Dijkstra plus a faithful, benchmarked implementation of the Duan-Mao-Mao-Shu-Yin sorting-barrier BMSSP algorithm"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "logtwothirds authors" }]
+authors = [{ name = "Nikolai Khobotov" }]
+keywords = [
+    "shortest-paths",
+    "sssp",
+    "dijkstra",
+    "bmssp",
+    "sorting-barrier",
+    "graph-algorithms",
+    "rust",
+]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering",
 ]
 dependencies = ["numpy>=1.21"]
+
+[project.urls]
+Repository = "https://github.com/primaryaesthetics/logtwothirds"
+Issues = "https://github.com/primaryaesthetics/logtwothirds/issues"
 
 [project.optional-dependencies]
 test = ["pytest", "scipy"]

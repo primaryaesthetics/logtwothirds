@@ -34,7 +34,7 @@ line, and then asks the question the asymptotics don't: does breaking the
 barrier make anything *run* faster? The honest answer — measured, not asserted —
 is **no, not at any size you can actually run.** The faithful implementation is
 26–128× slower than a good Dijkstra; the most aggressively engineered variant
-closes that to 1.4–5×, but never crosses over. The asymptotic advantage is real
+closes that to ~1.1–2×, but never crosses over. The asymptotic advantage is real
 and it does narrow with `n` exactly as `log^(2/3) n` vs `log n` predicts — it
 just doesn't pay off until somewhere around `n ≈ 2^400000` — for scale, the
 observable universe holds roughly `2^266` atoms. That gap between what the
@@ -89,17 +89,23 @@ dists, preds = shortest_paths_multi(graph, [s0, s1, s2])       # parallel (rayon
 stub. Median-of-5 benchmarks (BENCHMARKS.md, fixed seeds, distances
 cross-checked across five implementations):
 
-| graph | lt-dijkstra | bmssp (faithful) | bmssp-fast | scipy | rustworkx |
+| graph | lt-dijkstra | bmssp (faithful) | bmssp-fast¹ | scipy | rustworkx |
 |---|---:|---:|---:|---:|---:|
-| random m=4n, n=10⁶ | 854 ms | 24.6 s (29×) | 1.34 s (1.6×) | 806 ms | 1.59 s |
-| random m=4n, n=10⁷ | 13.3 s | 345 s (26×) | 18.4 s (1.4×) | 10.7 s | — |
-| Barabási–Albert, n=10⁶ | 1.28 s | 43.9 s (34×) | 1.79 s (1.4×) | 1.06 s | 1.86 s |
-| USA-road-d.NY | 25.9 ms | 1.65 s (64×) | 130 ms (5.0×) | 40.7 ms | 126 ms |
+| random m=4n, n=10⁶ | 854 ms | 24.6 s (29×) | 0.95 s (~1.24×) | 806 ms | 1.59 s |
+| random m=4n, n=10⁷ | 13.3 s | 345 s (26×) | 14.9 s (1.12×) | 10.7 s | — |
+| Barabási–Albert, n=10⁶ | 1.28 s | 43.9 s (34×) | 1.79 s (1.4×)² | 1.06 s | 1.86 s |
+| USA-road-d.NY | 25.9 ms | 1.65 s (64×) | 57 ms (~2.0×) | 40.7 ms | 126 ms |
+
+¹ Re-measured after the second engineering pass (OPTIMIZATION.md, "Second
+pass") with `examples/bench_fast.rs`: same-process medians of 5, distances
+cross-checked in-binary; the ratio is against the Dijkstra run in the same
+process. Other columns are the BENCHMARKS.md matrix.
+² Predates the second pass (not yet re-measured on Barabási–Albert).
 
 The faithful gap narrows with `n` exactly as `O(m log^(2/3) n)` vs `O(m log n)`
 predicts, but extrapolates to a crossover near `n ≈ 2^400000`; the
 maximally-engineered `bmssp-fast` is structurally a Dijkstra run carrying
-BMSSP's heavier labels, so its remaining 1.4–5× gap is a constant factor,
+BMSSP's heavier labels, so its remaining ~1.1–2× gap is a constant factor,
 not a vanishing one. There is no practical size at which any BMSSP engine
 wins — `bmssp` and `bmssp-fast` are provided for research and verification.
 Full story, methodology, and the variant ladder: **BENCHMARKS.md** (final
@@ -169,7 +175,16 @@ The research record, in reading order:
 | `OPTIMIZATION.md` | two low-level engineering passes that tightened `bmssp-fast` (2.13 s → 1.21 s at n=10⁶, then ~1.49× → ~1.24× of Dijkstra by same-process ratio, ~1.12× at 10⁷); distinct from the mainline pass in BENCHMARKS.md |
 | `BENCHMARKS.md` | final cross-implementation matrix and the honest verdict (Dijkstra wins everywhere; no crossover) — the authoritative wall-clock numbers |
 
-Numbers across these are consistent as of 2026-06-13; where a research-phase
+Numbers across these are consistent as of 2026-07-02; where a research-phase
 table (VARIANTS.md) and the final matrix (BENCHMARKS.md) differ for
 `bmssp-fast`, BENCHMARKS.md is authoritative and the older table is marked as
-superseded in place.
+superseded in place, with the second-pass ratios recorded in OPTIMIZATION.md.
+
+## Author & citing
+
+Written by **Nikolai Khobotov** ([github.com/primaryaesthetics](https://github.com/primaryaesthetics)).
+If you use the library or its benchmark results, cite it via the repository's
+[CITATION.cff](CITATION.cff) (GitHub renders a "Cite this repository" button
+from it). The algorithm itself is due to Duan, Mao, Mao, Shu and Yin
+([arXiv:2504.17033](https://arxiv.org/abs/2504.17033)); this project is an
+independent implementation and experimental study.
