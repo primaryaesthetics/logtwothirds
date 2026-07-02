@@ -434,20 +434,25 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
             let lu = *self.lab.get_unchecked(u as usize);
             let lv = *self.lab.get_unchecked(v as usize);
             let cand_len = lu.len + w;
-            let cand = Key {
-                len: cand_len,
-                hops: lu.hops + 1,
-                id: u as i64,
+            let cand_hops = lu.hops + 1;
+            // `cand <= cur` hand-expanded; `pred[v]` (the tie-break id, a
+            // second random memory read per edge) is only touched on a full
+            // `(len, hops)` tie. See `relax_bounded` for the equivalence.
+            let relax = match cand_len.total_cmp(&lv.len) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Greater => false,
+                std::cmp::Ordering::Equal => match cand_hops.cmp(&lv.hops) {
+                    std::cmp::Ordering::Less => true,
+                    std::cmp::Ordering::Greater => false,
+                    std::cmp::Ordering::Equal => {
+                        (u as i64) <= *self.pred.get_unchecked(v as usize)
+                    }
+                },
             };
-            let cur = Key {
-                len: lv.len,
-                hops: lv.hops,
-                id: *self.pred.get_unchecked(v as usize),
-            };
-            if cand <= cur {
+            if relax {
                 *self.lab.get_unchecked_mut(v as usize) = Label {
                     len: cand_len,
-                    hops: cand.hops,
+                    hops: cand_hops,
                 };
                 *self.pred.get_unchecked_mut(v as usize) = u as i64;
                 true
@@ -680,23 +685,28 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
                 let w = *self.g.weights.get_unchecked(e);
                 let cand_len = lu.len + w;
                 let cand_hops = lu.hops + 1;
-                let cand = Key {
-                    len: cand_len,
-                    hops: cand_hops,
-                    id: u as i64,
-                };
                 let lv = *self.lab.get_unchecked(v as usize);
-                let cur = Key {
-                    len: lv.len,
-                    hops: lv.hops,
-                    id: *self.pred.get_unchecked(v as usize),
+                // `cand <= cur`, hand-expanded so `pred[v]` (the tie-break id,
+                // a second random memory read per edge) is only touched on a
+                // full `(len, hops)` tie. `total_cmp` on `len` is exactly the
+                // `Key` order; the values are never NaN or -0.0.
+                let relax = match cand_len.total_cmp(&lv.len) {
+                    std::cmp::Ordering::Less => true,
+                    std::cmp::Ordering::Greater => false,
+                    std::cmp::Ordering::Equal => match cand_hops.cmp(&lv.hops) {
+                        std::cmp::Ordering::Less => true,
+                        std::cmp::Ordering::Greater => false,
+                        std::cmp::Ordering::Equal => {
+                            (u as i64) <= *self.pred.get_unchecked(v as usize)
+                        }
+                    },
                 };
                 let vkey = Key {
                     len: cand_len,
                     hops: cand_hops,
                     id: v as i64,
                 };
-                if cand <= cur && vkey < b {
+                if relax && vkey < b {
                     *self.lab.get_unchecked_mut(v as usize) = Label {
                         len: cand_len,
                         hops: cand_hops,
