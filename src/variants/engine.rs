@@ -232,35 +232,79 @@ impl KeyHeap {
         self.lens.is_empty()
     }
 
+    /// Read the entry at `i`.
+    ///
+    /// # Safety
+    /// `i < len` (the three vectors are kept the same length).
     #[inline(always)]
-    fn entry(&self, i: usize) -> (f64, i64, u32) {
-        (self.lens[i], self.hops[i], self.vals[i])
+    unsafe fn entry(&self, i: usize) -> (f64, i64, u32) {
+        debug_assert!(i < self.lens.len());
+        (
+            *self.lens.get_unchecked(i),
+            *self.hops.get_unchecked(i),
+            *self.vals.get_unchecked(i),
+        )
     }
 
+    /// Write the entry at `i`.
+    ///
+    /// # Safety
+    /// `i < len` (the three vectors are kept the same length).
     #[inline(always)]
-    fn set(&mut self, i: usize, e: (f64, i64, u32)) {
-        self.lens[i] = e.0;
-        self.hops[i] = e.1;
-        self.vals[i] = e.2;
+    unsafe fn set(&mut self, i: usize, e: (f64, i64, u32)) {
+        debug_assert!(i < self.lens.len());
+        *self.lens.get_unchecked_mut(i) = e.0;
+        *self.hops.get_unchecked_mut(i) = e.1;
+        *self.vals.get_unchecked_mut(i) = e.2;
+    }
+
+    /// Grow all three arrays by one slot; one cold capacity branch replaces
+    /// the three `Vec::push` would take (the arrays share a length, so one
+    /// check covers them all).
+    #[inline(always)]
+    fn bump_len(&mut self) -> usize {
+        let i = self.lens.len();
+        if i == self.lens.capacity() {
+            self.reserve_cold();
+        }
+        debug_assert!(self.hops.capacity() > i && self.vals.capacity() > i);
+        // SAFETY: capacity > i for all three (reserve_cold grows them in
+        // lockstep); the slots are written by the caller before being read.
+        unsafe {
+            self.lens.set_len(i + 1);
+            self.hops.set_len(i + 1);
+            self.vals.set_len(i + 1);
+        }
+        i
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn reserve_cold(&mut self) {
+        let add = (self.lens.len() / 2).max(64);
+        self.lens.reserve(add);
+        self.hops.reserve(add);
+        self.vals.reserve(add);
     }
 
     #[inline(always)]
     fn push(&mut self, e: (f64, i64, u32)) {
-        let mut i = self.lens.len();
-        self.lens.push(e.0);
-        self.hops.push(e.1);
-        self.vals.push(e.2);
-        while i > 0 {
-            let parent = (i - 1) >> 2;
-            let pe = self.entry(parent);
-            if Self::less(e, pe) {
-                self.set(i, pe);
-                i = parent;
-            } else {
-                break;
+        let mut i = self.bump_len();
+        // SAFETY: all indices below are `< len`: `i` starts at `len - 1` and
+        // only moves to parents; every write lands on a slot read first.
+        unsafe {
+            while i > 0 {
+                let parent = (i - 1) >> 2;
+                let pe = self.entry(parent);
+                if Self::less(e, pe) {
+                    self.set(i, pe);
+                    i = parent;
+                } else {
+                    break;
+                }
             }
+            self.set(i, e);
         }
-        self.set(i, e);
     }
 
     #[inline(always)]
@@ -269,39 +313,44 @@ impl KeyHeap {
         if len == 0 {
             return None;
         }
-        let min = self.entry(0);
-        let last = self.entry(len - 1);
-        self.lens.truncate(len - 1);
-        self.hops.truncate(len - 1);
-        self.vals.truncate(len - 1);
-        let n = len - 1;
-        if n > 0 {
-            let mut i = 0usize;
-            loop {
-                let first = 4 * i + 1;
-                if first >= n {
-                    break;
-                }
-                let last_child = std::cmp::min(first + 4, n);
-                let mut sm = first;
-                let mut sme = self.entry(first);
-                for c in first + 1..last_child {
-                    let ce = self.entry(c);
-                    if Self::less(ce, sme) {
-                        sm = c;
-                        sme = ce;
+        // SAFETY: `len >= 1`, so 0 and `len - 1` are valid; after the
+        // truncation every index touched is `< n = len - 1` (children are
+        // range-checked against `n` before use).
+        unsafe {
+            let min = self.entry(0);
+            let last = self.entry(len - 1);
+            let n = len - 1;
+            self.lens.set_len(n);
+            self.hops.set_len(n);
+            self.vals.set_len(n);
+            if n > 0 {
+                let mut i = 0usize;
+                loop {
+                    let first = 4 * i + 1;
+                    if first >= n {
+                        break;
+                    }
+                    let last_child = std::cmp::min(first + 4, n);
+                    let mut sm = first;
+                    let mut sme = self.entry(first);
+                    for c in first + 1..last_child {
+                        let ce = self.entry(c);
+                        if Self::less(ce, sme) {
+                            sm = c;
+                            sme = ce;
+                        }
+                    }
+                    if Self::less(sme, last) {
+                        self.set(i, sme);
+                        i = sm;
+                    } else {
+                        break;
                     }
                 }
-                if Self::less(sme, last) {
-                    self.set(i, sme);
-                    i = sm;
-                } else {
-                    break;
-                }
+                self.set(i, last);
             }
-            self.set(i, last);
+            Some(min)
         }
-        Some(min)
     }
 }
 
@@ -375,30 +424,36 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
     }
 
     /// The `<=` relaxation of Remark 3.4 (never gated on a bound).
+    ///
+    /// Unchecked indexing: callers pass vertex ids (`< n`, from the validated
+    /// CSR), so `lab`/`pred` accesses are in bounds.
     #[inline]
     fn try_relax(&mut self, u: u32, v: u32, w: f64) -> bool {
-        let lu = self.lab[u as usize];
-        let lv = self.lab[v as usize];
-        let cand_len = lu.len + w;
-        let cand = Key {
-            len: cand_len,
-            hops: lu.hops + 1,
-            id: u as i64,
-        };
-        let cur = Key {
-            len: lv.len,
-            hops: lv.hops,
-            id: self.pred[v as usize],
-        };
-        if cand <= cur {
-            self.lab[v as usize] = Label {
+        // SAFETY: `u` and `v` are vertex ids `< n`; see the doc comment.
+        unsafe {
+            let lu = *self.lab.get_unchecked(u as usize);
+            let lv = *self.lab.get_unchecked(v as usize);
+            let cand_len = lu.len + w;
+            let cand = Key {
                 len: cand_len,
-                hops: cand.hops,
+                hops: lu.hops + 1,
+                id: u as i64,
             };
-            self.pred[v as usize] = u as i64;
-            true
-        } else {
-            false
+            let cur = Key {
+                len: lv.len,
+                hops: lv.hops,
+                id: *self.pred.get_unchecked(v as usize),
+            };
+            if cand <= cur {
+                *self.lab.get_unchecked_mut(v as usize) = Label {
+                    len: cand_len,
+                    hops: cand.hops,
+                };
+                *self.pred.get_unchecked_mut(v as usize) = u as i64;
+                true
+            } else {
+                false
+            }
         }
     }
 
@@ -527,13 +582,17 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
 
         while !heap.is_empty() && u0.len() < k + 1 {
             let (klen, khops, u) = heap.pop().unwrap();
-            let lu = self.lab[u as usize];
+            // SAFETY: `u` came off the heap, so it is a vertex id `< n`
+            // (every push is a validated neighbor id or the seed `x`).
+            let lu = unsafe { *self.lab.get_unchecked(u as usize) };
             if klen.total_cmp(&lu.len) != std::cmp::Ordering::Equal || khops != lu.hops {
                 continue; // stale: u's label improved after this push
             }
-            if self.pop_stamp[u as usize] != epoch {
-                self.pop_stamp[u as usize] = epoch;
-                u0.push(u);
+            unsafe {
+                if *self.pop_stamp.get_unchecked(u as usize) != epoch {
+                    *self.pop_stamp.get_unchecked_mut(u as usize) = epoch;
+                    u0.push(u);
+                }
             }
             self.relax_bounded(u, b, &mut heap);
         }
@@ -577,13 +636,17 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         }
 
         while let Some((klen, khops, u)) = heap.pop() {
-            let lu = self.lab[u as usize];
+            // SAFETY: `u` came off the heap, so it is a vertex id `< n`
+            // (every push is a validated neighbor id or a member of `s`).
+            let lu = unsafe { *self.lab.get_unchecked(u as usize) };
             if klen.total_cmp(&lu.len) != std::cmp::Ordering::Equal || khops != lu.hops {
                 continue; // stale: u's label improved after this push
             }
-            if self.pop_stamp[u as usize] != epoch {
-                self.pop_stamp[u as usize] = epoch;
-                u0.push(u);
+            unsafe {
+                if *self.pop_stamp.get_unchecked(u as usize) != epoch {
+                    *self.pop_stamp.get_unchecked_mut(u as usize) = epoch;
+                    u0.push(u);
+                }
             }
             self.relax_bounded(u, b, &mut heap);
         }
@@ -598,39 +661,49 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
 
     /// Shared relaxation step of the two heap oracles: BaseCase semantics,
     /// i.e. the relaxation itself is gated by `vkey < B` (Algorithm 2 L8).
+    ///
+    /// Indexing is unchecked: [`run`] validated the CSR up front (offsets
+    /// monotone and `<= nnz`, every neighbor id `< n`), so `start..end` is a
+    /// valid range into `indices`/`weights` and every `v` indexes `lab`/`pred`
+    /// in bounds. `u` is a vertex id (`< n`) by the same argument.
     #[inline]
     fn relax_bounded(&mut self, u: u32, b: Key, heap: &mut KeyHeap) {
-        let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
-        count!(self, edge_scans, end - start);
-        let lu = self.lab[u as usize];
-        for e in start..end {
-            let v = self.g.indices[e];
-            let w = self.g.weights[e];
-            let cand_len = lu.len + w;
-            let cand_hops = lu.hops + 1;
-            let cand = Key {
-                len: cand_len,
-                hops: cand_hops,
-                id: u as i64,
-            };
-            let lv = self.lab[v as usize];
-            let cur = Key {
-                len: lv.len,
-                hops: lv.hops,
-                id: self.pred[v as usize],
-            };
-            let vkey = Key {
-                len: cand_len,
-                hops: cand_hops,
-                id: v as i64,
-            };
-            if cand <= cur && vkey < b {
-                self.lab[v as usize] = Label {
+        // SAFETY: see the doc comment — all indices are proven in range by
+        // the validation pass in `run`.
+        unsafe {
+            let start = *self.g.indptr.get_unchecked(u as usize);
+            let end = *self.g.indptr.get_unchecked(u as usize + 1);
+            count!(self, edge_scans, end - start);
+            let lu = *self.lab.get_unchecked(u as usize);
+            for e in start..end {
+                let v = *self.g.indices.get_unchecked(e);
+                let w = *self.g.weights.get_unchecked(e);
+                let cand_len = lu.len + w;
+                let cand_hops = lu.hops + 1;
+                let cand = Key {
                     len: cand_len,
                     hops: cand_hops,
+                    id: u as i64,
                 };
-                self.pred[v as usize] = u as i64;
-                heap.push((cand_len, cand_hops, v));
+                let lv = *self.lab.get_unchecked(v as usize);
+                let cur = Key {
+                    len: lv.len,
+                    hops: lv.hops,
+                    id: *self.pred.get_unchecked(v as usize),
+                };
+                let vkey = Key {
+                    len: cand_len,
+                    hops: cand_hops,
+                    id: v as i64,
+                };
+                if cand <= cur && vkey < b {
+                    *self.lab.get_unchecked_mut(v as usize) = Label {
+                        len: cand_len,
+                        hops: cand_hops,
+                    };
+                    *self.pred.get_unchecked_mut(v as usize) = u as i64;
+                    heap.push((cand_len, cand_hops, v));
+                }
             }
         }
     }
@@ -708,11 +781,23 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
             let __relax_t0 = std::time::Instant::now();
             let mut kk: Vec<(u32, Key)> = Vec::new();
             for &u in &ui {
-                let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
+                // SAFETY: `u` is a vertex id `< n` and the CSR was validated
+                // in `run`, so the offset range and edge reads are in bounds.
+                let (start, end) = unsafe {
+                    (
+                        *self.g.indptr.get_unchecked(u as usize),
+                        *self.g.indptr.get_unchecked(u as usize + 1),
+                    )
+                };
                 count!(self, edge_scans, end - start);
                 for e in start..end {
-                    let v = self.g.indices[e];
-                    let w = self.g.weights[e];
+                    // SAFETY: `e < end <= nnz` per the validated offsets.
+                    let (v, w) = unsafe {
+                        (
+                            *self.g.indices.get_unchecked(e),
+                            *self.g.weights.get_unchecked(e),
+                        )
+                    };
                     let passed = self.try_relax(u, v, w);
                     if passed {
                         count!(self, relaxations, 1);
@@ -808,6 +893,26 @@ pub fn run<Q: DQueue>(
     for &w in &g.weights {
         if w < 0.0 || !w.is_finite() {
             return Err(BmsspError::BadWeight);
+        }
+    }
+    // Validate the CSR structure so the engine's hot loops can use unchecked
+    // indexing: offsets non-decreasing from 0 to nnz (every `indptr[u]..
+    // indptr[u+1]` is a valid range into `indices`/`weights`) and every
+    // neighbor id `< n`. Same panic policy as `build_csr`, which already
+    // rejects out-of-range endpoints for graphs built through it.
+    {
+        let nnz = g.indices.len();
+        assert_eq!(g.indptr.len(), g.n + 1, "malformed CSR: indptr length");
+        assert_eq!(g.indptr[0], 0, "malformed CSR: indptr[0] != 0");
+        assert_eq!(g.indptr[g.n], nnz, "malformed CSR: indptr[n] != nnz");
+        assert_eq!(g.weights.len(), nnz, "malformed CSR: weights length");
+        let mut prev = 0usize;
+        for &p in &g.indptr[1..] {
+            assert!(p >= prev && p <= nnz, "malformed CSR: indptr not monotone");
+            prev = p;
+        }
+        for &v in &g.indices {
+            assert!((v as usize) < g.n, "malformed CSR: neighbor id out of range");
         }
     }
 
