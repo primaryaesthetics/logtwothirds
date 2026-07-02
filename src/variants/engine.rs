@@ -201,19 +201,21 @@ struct HeapScratch {
 /// `(len, hops, vertex)`. Entries always satisfy `Key.id == vertex` (both
 /// writers push `key(v)` / `vkey` with `id = v`), so the id is not stored;
 /// the order is exactly `Key`'s: `total_cmp` on len, then hops, then vertex.
-/// Same layout idea as `dijkstra::Heap` — sifting reads the dense `lens`
-/// array first and touches `hops`/`vals` only on float ties.
+/// Hops are stored in the engine's encoded `i32` form (see [`HOPS_INF`]);
+/// the encoding is strictly monotone, so the order is unchanged. Same layout
+/// idea as `dijkstra::Heap` — sifting reads the dense `lens` array first and
+/// touches `hops`/`vals` only on float ties.
 #[derive(Default)]
 struct KeyHeap {
     lens: Vec<f64>,
-    hops: Vec<i64>,
+    hops: Vec<i32>,
     vals: Vec<u32>,
 }
 
 impl KeyHeap {
     /// Exactly `Key`'s order with `id == val` (u32 order == i64 order here).
     #[inline(always)]
-    fn less(a: (f64, i64, u32), b: (f64, i64, u32)) -> bool {
+    fn less(a: (f64, i32, u32), b: (f64, i32, u32)) -> bool {
         match a.0.total_cmp(&b.0) {
             std::cmp::Ordering::Less => true,
             std::cmp::Ordering::Greater => false,
@@ -237,7 +239,7 @@ impl KeyHeap {
     /// # Safety
     /// `i < len` (the three vectors are kept the same length).
     #[inline(always)]
-    unsafe fn entry(&self, i: usize) -> (f64, i64, u32) {
+    unsafe fn entry(&self, i: usize) -> (f64, i32, u32) {
         debug_assert!(i < self.lens.len());
         (
             *self.lens.get_unchecked(i),
@@ -251,7 +253,7 @@ impl KeyHeap {
     /// # Safety
     /// `i < len` (the three vectors are kept the same length).
     #[inline(always)]
-    unsafe fn set(&mut self, i: usize, e: (f64, i64, u32)) {
+    unsafe fn set(&mut self, i: usize, e: (f64, i32, u32)) {
         debug_assert!(i < self.lens.len());
         *self.lens.get_unchecked_mut(i) = e.0;
         *self.hops.get_unchecked_mut(i) = e.1;
@@ -288,7 +290,7 @@ impl KeyHeap {
     }
 
     #[inline(always)]
-    fn push(&mut self, e: (f64, i64, u32)) {
+    fn push(&mut self, e: (f64, i32, u32)) {
         let mut i = self.bump_len();
         // SAFETY: all indices below are `< len`: `i` starts at `len - 1` and
         // only moves to parents; every write lands on a slot read first.
@@ -308,7 +310,7 @@ impl KeyHeap {
     }
 
     #[inline(always)]
-    fn pop(&mut self) -> Option<(f64, i64, u32)> {
+    fn pop(&mut self) -> Option<(f64, i32, u32)> {
         let len = self.lens.len();
         if len == 0 {
             return None;
@@ -354,22 +356,31 @@ impl KeyHeap {
     }
 }
 
-/// Per-vertex tentative label, `(dhat, hops)` fused into one 16-byte slot:
-/// the oracles' relax loop reads both fields for every scanned edge, and one
-/// cache line now serves both (16-byte aligned, so a label never straddles
-/// lines). `pred` stays separate — it is only read on full `(len, hops)`
-/// ties and written on successful relaxations.
+/// Encoded "infinite" hop count inside [`Label`] / [`KeyHeap`]. The engine
+/// stores hops as `i32`: real hop counts are path lengths, so they are
+/// `< n <= i32::MAX - 1` (asserted in [`Engine::new`]) and the encoding
+/// `INF_INT -> HOPS_INF`, `h -> h` is a strictly monotone bijection on every
+/// value that can occur — all comparisons are unchanged, and [`Engine::key`]
+/// decodes back to the reference's `INF_INT` at the `Key` boundary.
+const HOPS_INF: i32 = i32::MAX;
+
+/// Per-vertex tentative label, `(dhat, hops, pred)` fused into one 16-byte
+/// slot: the oracles' relax loop reads `len`/`hops` for every scanned edge
+/// and writes all three on success, and one cache line now serves the whole
+/// label (16-byte aligned, so a label never straddles lines). Hops use the
+/// [`HOPS_INF`] encoding; `pred` is the tie-break id (`-1` for none), which
+/// fits `i32` because vertex ids do.
 #[derive(Clone, Copy)]
 struct Label {
     len: f64,
-    hops: i64,
+    hops: i32,
+    pred: i32,
 }
 
 struct Engine<'g, Q: DQueue> {
     g: &'g Csr,
     cfg: Config,
     lab: Vec<Label>,
-    pred: Vec<i64>,
     k: usize,
     t: usize,
     settled: Vec<bool>,
@@ -387,19 +398,27 @@ struct Engine<'g, Q: DQueue> {
 impl<'g, Q: DQueue> Engine<'g, Q> {
     fn new(g: &'g Csr, source: u32, k: usize, t: usize, seed: u64, cfg: Config) -> Self {
         let n = g.n;
+        // The HOPS_INF encoding and the i32 pred both need vertex ids and hop
+        // counts to stay below i32::MAX (the crate-wide contract already
+        // returns i32 predecessors).
+        assert!(n < i32::MAX as usize, "graph too large for i32 vertex ids");
         let mut lab = vec![
             Label {
                 len: f64::INFINITY,
-                hops: INF_INT,
+                hops: HOPS_INF,
+                pred: -1,
             };
             n
         ];
-        lab[source as usize] = Label { len: 0.0, hops: 0 };
+        lab[source as usize] = Label {
+            len: 0.0,
+            hops: 0,
+            pred: -1,
+        };
         Engine {
             g,
             cfg,
             lab,
-            pred: vec![-1; n],
             k,
             t,
             settled: vec![false; n],
@@ -418,7 +437,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let l = self.lab[v as usize];
         Key {
             len: l.len,
-            hops: l.hops,
+            hops: if l.hops == HOPS_INF { INF_INT } else { l.hops as i64 },
             id: v as i64,
         }
     }
@@ -432,29 +451,35 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         // SAFETY: `u` and `v` are vertex ids `< n`; see the doc comment.
         unsafe {
             let lu = *self.lab.get_unchecked(u as usize);
+            if lu.hops == HOPS_INF {
+                // An infinite label relaxes nothing: `cand` would carry
+                // `hops = INF_INT + 1`, losing to every current label on the
+                // hops (or already the len) component. Bail out before the
+                // `+ 1` so the i32 encoding never overflows.
+                return false;
+            }
             let lv = *self.lab.get_unchecked(v as usize);
             let cand_len = lu.len + w;
             let cand_hops = lu.hops + 1;
-            // `cand <= cur` hand-expanded; `pred[v]` (the tie-break id, a
-            // second random memory read per edge) is only touched on a full
-            // `(len, hops)` tie. See `relax_bounded` for the equivalence.
+            // `cand <= cur` hand-expanded from the lexicographic Key order
+            // (len via total_cmp — values are never NaN or -0.0 — then hops,
+            // then the pred tie-break id). Encoded i32 hops compare exactly
+            // like the decoded i64 values (the encoding is monotone).
             let relax = match cand_len.total_cmp(&lv.len) {
                 std::cmp::Ordering::Less => true,
                 std::cmp::Ordering::Greater => false,
                 std::cmp::Ordering::Equal => match cand_hops.cmp(&lv.hops) {
                     std::cmp::Ordering::Less => true,
                     std::cmp::Ordering::Greater => false,
-                    std::cmp::Ordering::Equal => {
-                        (u as i64) <= *self.pred.get_unchecked(v as usize)
-                    }
+                    std::cmp::Ordering::Equal => (u as i32) <= lv.pred,
                 },
             };
             if relax {
                 *self.lab.get_unchecked_mut(v as usize) = Label {
                     len: cand_len,
                     hops: cand_hops,
+                    pred: u as i32,
                 };
-                *self.pred.get_unchecked_mut(v as usize) = u as i64;
                 true
             } else {
                 false
@@ -528,7 +553,7 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
         let mut children: HashMap<u32, Vec<u32>> = HashMap::default();
         let mut has_tight_parent: HashSet<u32> = HashSet::default();
         for &v in &w_order {
-            let up = self.pred[v as usize];
+            let up = self.lab[v as usize].pred;
             if up >= 0 && w_set.contains(&(up as u32)) {
                 let u = up as u32;
                 let (start, end) = (self.g.indptr[u as usize], self.g.indptr[u as usize + 1]);
@@ -680,38 +705,43 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
             let end = *self.g.indptr.get_unchecked(u as usize + 1);
             count!(self, edge_scans, end - start);
             let lu = *self.lab.get_unchecked(u as usize);
+            if lu.hops == HOPS_INF {
+                // An infinite label relaxes nothing (`cand` would lose to
+                // every current label on the len or hops component); bail
+                // out before the `+ 1` so the i32 encoding never overflows.
+                return;
+            }
             for e in start..end {
                 let v = *self.g.indices.get_unchecked(e);
                 let w = *self.g.weights.get_unchecked(e);
                 let cand_len = lu.len + w;
                 let cand_hops = lu.hops + 1;
                 let lv = *self.lab.get_unchecked(v as usize);
-                // `cand <= cur`, hand-expanded so `pred[v]` (the tie-break id,
-                // a second random memory read per edge) is only touched on a
-                // full `(len, hops)` tie. `total_cmp` on `len` is exactly the
-                // `Key` order; the values are never NaN or -0.0.
+                // `cand <= cur`, hand-expanded from the lexicographic Key
+                // order. `total_cmp` on `len` is exactly the `Key` order (the
+                // values are never NaN or -0.0); encoded i32 hops compare
+                // exactly like the decoded i64 values (monotone encoding);
+                // the pred tie-break only decides on a full `(len, hops)` tie.
                 let relax = match cand_len.total_cmp(&lv.len) {
                     std::cmp::Ordering::Less => true,
                     std::cmp::Ordering::Greater => false,
                     std::cmp::Ordering::Equal => match cand_hops.cmp(&lv.hops) {
                         std::cmp::Ordering::Less => true,
                         std::cmp::Ordering::Greater => false,
-                        std::cmp::Ordering::Equal => {
-                            (u as i64) <= *self.pred.get_unchecked(v as usize)
-                        }
+                        std::cmp::Ordering::Equal => (u as i32) <= lv.pred,
                     },
                 };
                 let vkey = Key {
                     len: cand_len,
-                    hops: cand_hops,
+                    hops: cand_hops as i64,
                     id: v as i64,
                 };
                 if relax && vkey < b {
                     *self.lab.get_unchecked_mut(v as usize) = Label {
                         len: cand_len,
                         hops: cand_hops,
+                        pred: u as i32,
                     };
-                    *self.pred.get_unchecked_mut(v as usize) = u as i64;
                     heap.push((cand_len, cand_hops, v));
                 }
             }
@@ -857,7 +887,6 @@ impl<'g, Q: DQueue> Engine<'g, Q> {
 /// Map transformed-graph predecessors back to the original graph (same walk
 /// as the mainline's `recover_pred`).
 fn recover_pred_transformed(
-    pred_t: &[i64],
     lab_t: &[Label],
     rep: &[u32],
     owner: &[u32],
@@ -875,7 +904,7 @@ fn recover_pred_transformed(
         }
         let mut cur = r;
         loop {
-            let p = pred_t[cur];
+            let p = lab_t[cur].pred;
             if p < 0 {
                 break;
             }
@@ -942,8 +971,7 @@ pub fn run<Q: DQueue>(
         eng.bmssp(levels, KEY_INF, &[tr.source2]);
         let (dist, pred) = phase!(eng, finalize, {
             let dist: Vec<f64> = (0..g.n).map(|v| eng.lab[tr.rep[v] as usize].len).collect();
-            let pred =
-                recover_pred_transformed(&eng.pred, &eng.lab, &tr.rep, &tr.owner, g.n, source);
+            let pred = recover_pred_transformed(&eng.lab, &tr.rep, &tr.owner, g.n, source);
             (dist, pred)
         });
         VariantRun {
@@ -961,14 +989,7 @@ pub fn run<Q: DQueue>(
         let (k, t, levels) = compute_params(g.n, cfg.kt_override);
         let mut eng = Engine::<Q>::new(g, source as u32, k, t, seed, cfg);
         eng.bmssp(levels, KEY_INF, &[source as u32]);
-        let pred: Vec<i32> = phase!(
-            eng,
-            finalize,
-            eng.pred
-                .iter()
-                .map(|&p| if p < 0 { -1 } else { p as i32 })
-                .collect()
-        );
+        let pred: Vec<i32> = phase!(eng, finalize, eng.lab.iter().map(|l| l.pred).collect());
         VariantRun {
             dist: eng.lab.iter().map(|l| l.len).collect(),
             pred,
