@@ -5,6 +5,10 @@ broke the **sorting barrier** for shortest paths — packaged as a small Python
 library (Rust core via PyO3 + maturin), and measured against plain Dijkstra to
 answer the question the theory leaves open: is it actually faster?
 
+New to shortest paths? There's a guided tour that assumes nothing and ends at
+this repository's verdict: start at
+[docs/00-why-shortest-paths.md](docs/00-why-shortest-paths.md).
+
 ## The sorting barrier, and the algorithm that broke it
 
 Dijkstra's algorithm settles vertices in order of increasing distance from the
