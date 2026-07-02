@@ -244,6 +244,16 @@ Gap-vs-n, both engines (random m = 4n):
 | lt-bmssp (faithful) | 84× | 45× | 29× | 26× |
 | lt-bmssp-fast | 1.9× | 1.8× | 1.6× | 1.4× |
 
+A second engineering pass on the variants engine (OPTIMIZATION.md, "Second
+pass": unchecked hot loops behind an entry validation, the pred tie-break
+read moved behind the full-tie branch, pred fused into the 16-byte label
+with i32 hops, the B = ∞ bound test hoisted) later pushed these bmssp-fast
+ratios to **~2.0× at 10⁵, ~1.24× at 10⁶, ~1.12× at 10⁷**, and — after fixing
+a latent tie-rich duplicate blowup that postdated this matrix — **~2.0×** on
+NY road (`examples/bench_fast.rs`, same-process medians, distances
+cross-checked in-binary). The gap narrows; the verdict below stands: the
+remaining cost is the per-edge BMSSP contract, and it does not cross zero.
+
 ## PGO evaluation
 
 Two-phase build with `-Cprofile-generate` → `llvm-profdata merge` →

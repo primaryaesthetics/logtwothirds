@@ -23,7 +23,7 @@ neutral engineering. Companion to:
 | engine | `src/bmssp.rs` + `src/block_queue.rs` (faithful) | `src/variants/engine.rs` (variants), config = `bmssp-fast` |
 | gate | differential gate (200 graphs, bit-exact distances **and** settlement order vs the Python reference) | `variants_correctness` (≥520 property graphs + 10⁶-edge stress per variant, **bit-exact distances** + predecessor consistency; settlement order deliberately not pinned) |
 | changes | FxHash, base-case scratch reuse, pull union buffer, mimalloc | hash-free oracles + epoch stamps, SoA `KeyHeap`, fused `Label` |
-| result | 49.8 s → 27.2 s (−45%) at n=10⁶ | 2.13 s → 1.21 s (−43%) at n=10⁶ |
+| result | 49.8 s → 27.2 s (−45%) at n=10⁶ | 2.13 s → 1.21 s (−43%) at n=10⁶; a [second pass](#second-pass-bounds-checks-the-pred-fuse-and-the-tie-rich-blowup) then took the dijkstra ratio 1.49× → ~1.24× |
 
 The mainline stays frozen as the faithful, settlement-order-pinned reference
 engine; this pass never touches it. The two passes are complementary, not
@@ -180,12 +180,12 @@ This is the sharp end of VARIANTS.md's observation that every tuning gradient
 points toward Dijkstra: the data, asked for the fastest correct BMSSP
 instantiation, returned **Dijkstra in BMSSP clothing**.
 
-### What the residual ~1.4× to `lt-dijkstra` is
+### What the residual gap to `lt-dijkstra` is
 
 Since the two are doing the same graph traversal, the remaining gap (1.4× at
-n=10⁶ on random graphs; up to 5.0× on the tie-heavy DIMACS road graph — see
-BENCHMARKS.md) is exactly the cost of the BMSSP *contract* over plain
-Dijkstra, and it does not vanish with n:
+n=10⁶ on random graphs as of this pass; the second pass below narrows it to
+~1.24×, and to ~2× on the tie-heavy DIMACS road graph) is exactly the cost of
+the BMSSP *contract* over plain Dijkstra, and it does not vanish with n:
 
 - **16-byte lexicographic labels** `(len, hops)` vs Dijkstra's 8-byte `f64`
   distance — double the per-vertex state traffic;
@@ -200,6 +200,61 @@ Dijkstra, and it does not vanish with n:
 These are constant-factor per-edge/per-vertex costs, not a vanishing
 asymptotic term — which is the structural reason BENCHMARKS.md concludes
 there is no crossover for `bmssp-fast` either.
+
+## Second pass: bounds checks, the pred fuse, and the tie-rich blowup
+
+A later pass (`76c4ce9`..`e0342b7`) re-attacked the same oracle loop after a
+survey of the public BMSSP implementations and of the independent C++ study
+(arXiv:2511.03007, whose best variant lands at ~3.6× Dijkstra on random
+graphs) confirmed there was no known technique left to import — everything on
+the usual optimization lists (CSR, SoA, no hashing, no recursion, compact
+types) was already here or already rejected above. What remained was found by
+re-reading our own hot loop against `src/dijkstra.rs`.
+
+Absolute times moved with the machine's thermal state between sessions, so
+the honest metric is the same-process ratio to `lt-dijkstra` that
+`examples/bench_fast.rs` prints (median of 5, distances cross-checked
+bit-exact against Dijkstra inside the binary):
+
+| # | commit | change | ratio @ n=10⁶ |
+|---|---|---|---:|
+| 0 | `e0342b7`⁻ | second-pass baseline (state after the table above) | 1.49× |
+| 1 | `76c4ce9` | unchecked indexing in the relax/oracle loops, justified by a CSR validation pass at `run()` entry (the `src/dijkstra.rs` recipe); `KeyHeap` grows through one cold branch | 1.42× |
+| 2 | `c6cdee7` | the relax comparison hand-expanded so the `pred` tie-break id is read only on a full `(len, hops)` tie — one less random read per scanned edge | 1.34× |
+| 3 | `eb17dc7` | `pred` fused into the 16-byte `Label` (`len: f64, hops: i32, pred: i32`); hops take an `i32` encoding (`INF_INT` ↔ `i32::MAX`, monotone, decoded at the `Key` boundary), so heap entries shrink 20 → 16 bytes and a successful relaxation writes one slot instead of two arrays | 1.26× |
+| 4 | `6489a0d` | the `vkey < B` bound test hoisted out of the loop when `B = ∞` (always, for the single oracle call the tuned config runs) | ~1.24× |
+
+Step 3 supersedes the first pass's judgement that fusing `pred` in "would
+pollute the line for no gain": once hops shrank to `i32`, `pred` fit in the
+same 16 bytes the label already occupied, turning the trade into a pure win.
+Measured net at n=10⁶: **~1.49× → ~1.24×** of `lt-dijkstra` (absolute ~0.95 s
+on the session's machine state); at n=10⁷ the ratio is **~1.12×**, the
+closest this engine has come to the crossover it cannot reach.
+
+### The tie-rich blowup (`e0342b7`)
+
+The pass also flushed out a **latent correctness-of-termination bug**: the
+`≤` relaxation rule accepts an exact `(len, hops, pred)` tie, whose only
+effect is a duplicate heap entry with an identical key. On float-weighted
+graphs equal path sums have measure zero and the gate never saw one at scale;
+on integer road-network weights they are pervasive, every duplicate pop
+rescanned the vertex and re-accepted the same ties, and the duplicates
+multiplied combinatorially — `bmssp-fast` on DIMACS `USA-road-d.NY` hung and
+then failed a 16 GiB allocation. The bug dates to the first pass's removal of
+the oracle `best` map, whose insert gating had been absorbing equal-key
+duplicates; VARIANTS.md's recorded 6.4× on NY predates it.
+
+The fix drops any oracle pop whose vertex was already scanned in the same
+call: pops are non-decreasing, the staleness check pins key == label at both
+pops, and labels only decrease, so the label is provably unchanged and the
+rescan could relax nothing. The `≤` rule itself is untouched — tie pushes
+are load-bearing across oracle calls (a label set by an earlier call must
+still seed the current call's heap; making the tie-break strict loses
+reachability, which the property suite catches immediately). The gate grew a
+per-variant `stress_million_edges_tie_rich` member (10⁶-edge SmallInt graph)
+that hangs without the fix, and `bench_fast` learned to read `.gr` files.
+NY road after the fix: **~2.0×** `lt-dijkstra` (57 ms vs 28 ms) — down from
+the recorded 6.4×, and from non-termination immediately before.
 
 ## Reproducing
 

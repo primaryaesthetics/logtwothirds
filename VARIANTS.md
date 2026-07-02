@@ -352,6 +352,19 @@ arithmetic in every comparison, 20-byte vs 12-byte heap entries, and the
 `vkey < B` bound test — the price of being a BMSSP oracle rather than plain
 Dijkstra.
 
+A **second engineering pass** (OPTIMIZATION.md, "Second pass") later cut most
+of that remaining price: unchecked hot-loop indexing behind an up-front CSR
+validation, the `pred` tie-break read moved behind the full-tie branch,
+`pred` fused into the 16-byte label with `i32` hops (heap entries 20 → 16
+bytes), and the `B = ∞` bound test hoisted out of the loop. Measured by
+same-process ratio (`examples/bench_fast.rs`): **~1.24× of `lt-dijkstra` at
+10⁶, ~1.12× at 10⁷, ~2× on NY road**. That pass also found and fixed a
+latent blowup this study's NY road numbers predate: on tie-rich integer
+weights the `≤` relaxation's duplicate heap entries cascaded combinatorially
+after the consolidation dropped the `best` map — the 6.4× NY cell above was
+measured before the regression existed, and the post-fix engine lands at ~2×.
+The gate grew a tie-rich 10⁶-edge stress member per variant to pin this.
+
 ## Recommendation
 
 **Ship `bmssp-fast`** (implemented as `method="bmssp-fast"`,

@@ -166,12 +166,10 @@ The research record, in reading order:
 | `AUDIT.md` | line-by-line audit of the Python reference against the paper (zero blockers; findings F1–F14) |
 | `QUESTIONS.md` / `FAILCASE.md` | the four resolved paper-interpretation questions, and the worked failure case that motivated the settled-vertex filter |
 | `VARIANTS.md` | algorithm-level variant study (`src/variants/`) that produced `bmssp-fast`; ranks the variants and proves each delta correctness-preserving |
-| `OPTIMIZATION.md` | low-level engineering pass that tightened `bmssp-fast` (2.13 s → 1.21 s at n=10⁶); distinct from the mainline pass in BENCHMARKS.md |
+| `OPTIMIZATION.md` | two low-level engineering passes that tightened `bmssp-fast` (2.13 s → 1.21 s at n=10⁶, then ~1.49× → ~1.24× of Dijkstra by same-process ratio, ~1.12× at 10⁷); distinct from the mainline pass in BENCHMARKS.md |
 | `BENCHMARKS.md` | final cross-implementation matrix and the honest verdict (Dijkstra wins everywhere; no crossover) — the authoritative wall-clock numbers |
 
 Numbers across these are consistent as of 2026-06-13; where a research-phase
 table (VARIANTS.md) and the final matrix (BENCHMARKS.md) differ for
 `bmssp-fast`, BENCHMARKS.md is authoritative and the older table is marked as
 superseded in place.
-</content>
-</invoke>
