@@ -22,17 +22,24 @@ The algorithm is one loop: repeatedly take the frontier vertex with the
 
 ## Why the smallest one is safe to settle
 
-This is the greedy step, and here's the proof it never errs. Let `u` be the
-frontier vertex with the smallest tentative distance `d`. Could some
-undiscovered route to `u` be shorter than `d`? Any such route has to leave
-the settled region at some point, so it passes through *some* frontier vertex
-`v` first. But reaching `v` already costs at least `d` (we picked `u` as the
-frontier minimum), and continuing from `v` to `u` can only add more — weights
-are non-negative. So no other route beats `d`, and `u` is done.
+This is the greedy step, and it deserves a picture before a proof. Think of
+the settled region as an island. Every route we're pricing starts at the
+source, and the source is on the island — so any route to a not-yet-settled
+vertex must step off the island at some point, and the first vertex it
+touches when it does is, by definition, a frontier vertex.
 
-Notice where the assumption earned its keep: with a negative edge, the
-"continuing can only add more" step breaks, and so does the whole algorithm.
-That's why part 0 insisted on non-negative weights.
+Now let `u` be the frontier vertex with the smallest tentative distance `d`,
+and take any route to `u` the algorithm hasn't discovered yet. Like every
+route, it steps off the island at some frontier vertex `v`. Reaching `v`
+already costs at least `d` — we picked `u` precisely because no frontier
+vertex is cheaper to reach. And the rest of the trip, from `v` onward to
+`u`, can only add to that total: weights are non-negative. So every route to
+`u` costs at least `d`, the tentative distance is final, and `u` is safe to
+settle.
+
+Notice where the assumption earned its keep: with a negative edge, the "can
+only add to that total" step breaks, and so does the whole algorithm. That's
+why part 0 insisted on non-negative weights.
 
 ## A worked example
 

@@ -20,3 +20,17 @@ graph: random m=4n, n=10000000
 n=10000000, m=40000000
 dijkstra   median   14.287 s
 bmssp-fast median   15.702 s   (1.10x dijkstra)
+
+## USA-road-d.NY — cooled repetitions, 2026-07-04
+# 5 repetitions, 120 s idle cooldown before each, same binary and method
+# as above (median of 5 after 1 warmup per repetition, distances
+# cross-checked in-binary)
+rep 1: dijkstra 0.025 s   bmssp-fast 0.052 s   (2.03x)
+rep 2: dijkstra 0.025 s   bmssp-fast 0.052 s   (2.05x)
+rep 3: dijkstra 0.027 s   bmssp-fast 0.054 s   (2.03x)
+rep 4: dijkstra 0.026 s   bmssp-fast 0.052 s   (2.01x)
+rep 5: dijkstra 0.029 s   bmssp-fast 0.065 s   (2.22x)
+# median ratio 2.03x. The 1.55x in the 2026-07-03 block above came from a
+# slower dijkstra baseline (0.036 s vs 0.025-0.029 s here) with bmssp-fast
+# nearly unchanged; treat ~2.0x as the representative NY ratio, matching
+# the OPTIMIZATION.md second-pass session.

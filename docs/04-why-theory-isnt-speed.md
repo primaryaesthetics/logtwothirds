@@ -36,7 +36,7 @@ degenerate: `log₂ n ≈ 20` gives `k = ⌊20^(1/3)⌋ = 2`, so the "big" recur
 machinery — pivot finding, the block queue, recursion frames — fires millions
 of times on subproblems of a few vertices each. Profiling the faithful
 implementation at n = 10⁶ counts about 4.3 million queue pulls and 4.3
-million base-case calls, and 69 million edge relaxations where plain Dijkstra
+million base-case calls, and 69 million edge scans where plain Dijkstra
 needs 4 million ([BENCHMARKS.md](../BENCHMARKS.md) has the full profile).
 
 **Cache.** Part 1 noted Dijkstra's memory behavior is simple and
@@ -59,11 +59,15 @@ implementations (all numbers below are in
 | USA-road-d.NY (264k vertices) | 26 ms | 1.65 s — **64× slower** |
 
 The gap does narrow as `n` grows — 84×, 45×, 29×, 26× at n = 10⁴ through
-10⁷ — and it narrows at just about the `log^(1/3) n` rate the theory
-predicts. The theory is *right*. Extrapolate the trend to the crossover
-point, though, and the curves meet around **n ≈ 2^400,000**. For scale, the
-observable universe holds roughly 2^266 atoms. The asymptotic advantage is
-real and it is unreachable.
+10⁷ — in the direction, and roughly at the rate, the `log^(1/3) n` scaling
+predicts; force the theory's `C·log₂(n)^(−1/3)` form onto the points and it
+fits, but only with `C` drifting rather than held constant
+([BENCHMARKS.md](../BENCHMARKS.md) shows the fit). The theory has the trend
+right. Extrapolate it to the crossover point, though, and the curves meet
+around **n ≈ 2^400,000** — not a large graph but an impossible one: storing
+even one vertex per atom would exhaust the observable universe (roughly
+2^266 atoms) without making a dent in that exponent. The asymptotic
+advantage is real and it is unreachable.
 
 A fair objection: maybe the *faithful* implementation is just naive, and an
 engineered one would win? This repository spent two optimization passes
@@ -72,10 +76,14 @@ finding out ([VARIANTS.md](../VARIANTS.md),
 proofs permit deleting — the transform, the paper's parameter choices, hash
 tables, bounds checks, memory layout, all of it measured change by change.
 The end state, `bmssp-fast`, runs about 1.1–1.2× of Dijkstra's time on random
-graphs at n = 10⁶–10⁷ and ~1.5–2× on the NY road network — close enough to
-touch, and ahead of every published implementation we could find (an
-independent C++ study, [arXiv:2511.03007](https://arxiv.org/abs/2511.03007),
-reports ~3.6× for its best variant). But the profile shows *why* it got that
+graphs at n = 10⁶–10⁷ and ~2× on the NY road network, where integer weights
+make path-length ties everywhere and bmssp-fast pays for each one (more on
+ties below) — close enough to touch, and ahead of every published
+implementation we could find (an independent C++ study,
+[arXiv:2511.03007](https://arxiv.org/abs/2511.03007), reports ~3.6× for its
+best variant; a Rust study on Lightning Network graphs,
+[arXiv:2509.13448](https://arxiv.org/abs/2509.13448), lands at ~2× at
+best). But the profile shows *why* it got that
 close: at its measured-optimal settings, the framework collapses into a
 single Dijkstra-like pass carrying BMSSP's heavier labels. Every knob, turned
 toward "faster," turned toward "more like Dijkstra." The residual gap is the

@@ -39,9 +39,10 @@ barrier make anything *run* faster? The honest answer — measured, not asserted
 is **no, not at any size you can actually run.** The faithful implementation is
 26–128× slower than a good Dijkstra; the most aggressively engineered variant
 closes that to ~1.1–2×, but never crosses over. The asymptotic advantage is real
-and it does narrow with `n` exactly as `log^(2/3) n` vs `log n` predicts — it
-just doesn't pay off until somewhere around `n ≈ 2^400000` — for scale, the
-observable universe holds roughly `2^266` atoms. That gap between what the
+and it does narrow with `n` roughly as `log^(2/3) n` vs `log n` predicts — it
+just doesn't pay off until somewhere around `n ≈ 2^400000`, a graph too large
+to store even at one vertex per atom of the observable universe (roughly
+`2^266` of them). That gap between what the
 theory promises and what
 the hardware delivers is the actual subject of this repo, documented honestly
 below and in [BENCHMARKS.md](BENCHMARKS.md).
@@ -106,7 +107,7 @@ cross-checked in-binary; the ratio is against the Dijkstra run in the same
 process. Other columns are the BENCHMARKS.md matrix.
 ² Predates the second pass (not yet re-measured on Barabási–Albert).
 
-The faithful gap narrows with `n` exactly as `O(m log^(2/3) n)` vs `O(m log n)`
+The faithful gap narrows with `n` roughly as `O(m log^(2/3) n)` vs `O(m log n)`
 predicts, but extrapolates to a crossover near `n ≈ 2^400000`; the
 maximally-engineered `bmssp-fast` is structurally a Dijkstra run carrying
 BMSSP's heavier labels, so its remaining ~1.1–2× gap is a constant factor,

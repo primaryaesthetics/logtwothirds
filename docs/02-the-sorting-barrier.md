@@ -62,7 +62,8 @@ it needs no such assumptions.)*
 
 ## The loophole
 
-Read requirement (1) again, carefully. The problem statement asks for the
+Look again at fact (1), and at the qualifier hiding inside it:
+*distance-ordered*. The problem statement asks for the
 *distances*. Nobody asked for them *in sorted order*. The sorting barrier
 blocks algorithms that settle nearest-first; it says nothing about an
 algorithm that figures out all the distances while never establishing their

@@ -62,7 +62,7 @@ at all, just "relax every edge of the current wave, k times"). Two outcomes:
 
 - Some source's shortest-path tree grew to at least `k` vertices in those
   rounds. Trees that big are few — they don't overlap, so a region of `W`
-  vertices fits at most `|W|/k` of them — and their roots (**pivots**) are
+  vertices fits at most `W/k` of them — and their roots (**pivots**) are
   the only sources the recursion truly needs to worry about.
 - Or nothing grew that big — then those `k` rounds already finished every
   vertex of the band closer than `k` hops, and there's nothing left to
