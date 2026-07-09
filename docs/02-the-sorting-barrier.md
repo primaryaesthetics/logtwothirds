@@ -85,6 +85,12 @@ distance exactly, but only ever learns a *coarse* ordering of the vertices,
 never the full sorted one. Just enough order to be correct, provably less
 than sorting.
 
+And the story didn't stop there: in February 2026 four of the five authors
+sharpened the bound again, to `O(m √(log n · log log n))` for sparse graphs
+([arXiv:2602.07868](https://arxiv.org/abs/2602.07868)). This tour follows the
+original `log^(2/3)` algorithm — it's the one with published implementations
+to measure against — but the barrier is now well and truly down.
+
 How can "just enough order" possibly work? That's part 3.
 
 ---

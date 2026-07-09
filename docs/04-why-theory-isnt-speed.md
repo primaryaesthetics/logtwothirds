@@ -83,7 +83,10 @@ implementation we could find (an independent C++ study,
 [arXiv:2511.03007](https://arxiv.org/abs/2511.03007), reports ~3.6× for its
 best variant; a Rust study on Lightning Network graphs,
 [arXiv:2509.13448](https://arxiv.org/abs/2509.13448), lands at ~2× at
-best). But the profile shows *why* it got that
+best; and a pure-Python package, BMSSPy
+([SSRN 5777186](https://ssrn.com/abstract=5777186)), beats NetworkX's and
+igraph's Dijkstra but not its authors' own optimized one). But the profile
+shows *why* it got that
 close: at its measured-optimal settings, the framework collapses into a
 single Dijkstra-like pass carrying BMSSP's heavier labels. Every knob, turned
 toward "faster," turned toward "more like Dijkstra." The residual gap is the

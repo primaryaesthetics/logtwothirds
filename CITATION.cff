@@ -5,6 +5,8 @@ title: "logtwothirds: single-source shortest paths — Dijkstra and a faithful, 
 authors:
   - family-names: Khobotov
     given-names: Nikolai
+    orcid: "https://orcid.org/0009-0005-3612-830X"
+    email: nicholaask@gmail.com
 version: 0.1.0
 date-released: 2026-07-02
 url: "https://github.com/primaryaesthetics/logtwothirds"

@@ -31,7 +31,10 @@ everything behind them, and a divide-and-conquer recursion (`BMSSP`) settles
 whole blocks of vertices without ever materializing the complete sorted
 sequence. The `log^(2/3)` is what the bookkeeping costs once you no longer pay
 for the sort. The "two-thirds" in the exponent is where this project's name
-comes from.
+comes from. (The result keeps moving: in February 2026 four of the five authors
+sharpened the bound again, to `O(m √(log n · log log n))` on sparse graphs —
+[arXiv:2602.07868](https://arxiv.org/abs/2602.07868). This repository studies
+the original algorithm; the practical question below applies to any successor.)
 
 This repository implements that algorithm, checks it against the paper line by
 line, and then asks the question the asymptotics don't: does breaking the
