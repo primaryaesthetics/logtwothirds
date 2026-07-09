@@ -8,6 +8,11 @@ authors:
     orcid: "https://orcid.org/0009-0005-3612-830X"
     email: nicholaask@gmail.com
 version: 0.1.0
+doi: 10.5281/zenodo.21284463
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21284462
+    description: "Concept DOI for all versions; resolves to the latest."
 date-released: 2026-07-02
 url: "https://github.com/primaryaesthetics/logtwothirds"
 repository-code: "https://github.com/primaryaesthetics/logtwothirds"

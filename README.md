@@ -1,5 +1,7 @@
 # logtwothirds
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21284462.svg)](https://doi.org/10.5281/zenodo.21284462)
+
 A verified, honestly benchmarked Rust implementation of the 2025 algorithm that
 broke the **sorting barrier** for shortest paths — packaged as a small Python
 library (Rust core via PyO3 + maturin), and measured against plain Dijkstra to
