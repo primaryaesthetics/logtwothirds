@@ -19,14 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            manylinux: auto
+          # The default cross container's aarch64 gcc is too old to compile
+          # mimalloc's C sources; the 2_28 image ships a modern toolchain.
+          - target: aarch64
+            manylinux: 2_28
     steps:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
-          manylinux: auto
+          manylinux: ${{ matrix.manylinux }}
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
