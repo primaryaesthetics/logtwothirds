@@ -9,7 +9,7 @@ description = "Fast single-source shortest paths with a Rust core (PyO3 + maturi
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "Nikolai Khobotov" }]
+authors = [{ name = "Nikolai Khobotov", email = "nicholaask@gmail.com" }]
 keywords = [
     "shortest-paths",
     "sssp",

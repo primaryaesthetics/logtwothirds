@@ -192,7 +192,10 @@ superseded in place, with the second-pass ratios recorded in OPTIMIZATION.md.
 
 ## Author & citing
 
-Written by **Nikolai Khobotov** ([github.com/primaryaesthetics](https://github.com/primaryaesthetics)).
+Written by **Nikolai Khobotov**
+([github.com/primaryaesthetics](https://github.com/primaryaesthetics),
+[ORCID 0009-0005-3612-830X](https://orcid.org/0009-0005-3612-830X),
+[primaryaesthetics.github.io](https://primaryaesthetics.github.io/)).
 If you use the library or its benchmark results, cite it via the repository's
 [CITATION.cff](CITATION.cff) (GitHub renders a "Cite this repository" button
 from it). The algorithm itself is due to Duan, Mao, Mao, Shu and Yin
