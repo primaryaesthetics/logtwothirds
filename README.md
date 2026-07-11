@@ -3,7 +3,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21284462.svg)](https://doi.org/10.5281/zenodo.21284462)
 
 A verified, honestly benchmarked Rust implementation of the 2025 algorithm that
-broke the **sorting barrier** for shortest paths — packaged as a small Python
+broke the **sorting barrier** for shortest paths, packaged as a small Python
 library (Rust core via PyO3 + maturin), and measured against plain Dijkstra to
 answer the question the theory leaves open: is it actually faster?
 
@@ -14,28 +14,28 @@ this repository's verdict: start at
 ## The sorting barrier, and the algorithm that broke it
 
 Dijkstra's algorithm settles vertices in order of increasing distance from the
-source. That ordering is the whole trick — and also a tax. Producing `n` numbers
+source. That ordering is the whole trick, and also a tax. Producing `n` numbers
 in sorted order costs `Ω(n log n)` comparisons, so any shortest-path algorithm
 that hands you vertices in distance order inherits that `log n` factor. On a
-sparse graph — `m` edges with `m` close to `n` — that sorting term is what
+sparse graph (`m` edges with `m` close to `n`) that sorting term is what
 dominates the clock. For sixty years this looked fundamental: to find shortest
 paths you seemed to have to sort, and sorting has a floor. Call it the *sorting
 barrier*.
 
-In 2025, Duan, Mao, Mao, Shu, and Yin broke it. Their algorithm — *Breaking the
+In 2025, Duan, Mao, Mao, Shu, and Yin broke it. Their algorithm, *Breaking the
 Sorting Barrier for Directed Single-Source Shortest Paths*
-([arXiv:2504.17033](https://arxiv.org/abs/2504.17033)) — finds the same shortest
+([arXiv:2504.17033](https://arxiv.org/abs/2504.17033)), finds the same shortest
 paths in `O(m log^(2/3) n)` time, strictly below Dijkstra's `O(m + n log n)` on
 sparse graphs. The idea is to stop fully sorting. Rather than pulling vertices
 one at a time in distance order, it recursively shrinks the frontier: a
 `FindPivots` step picks a small set of vertices whose settlement unlocks
 everything behind them, and a divide-and-conquer recursion (`BMSSP`) settles
 whole blocks of vertices without ever materializing the complete sorted
-sequence. The `log^(2/3)` is what the bookkeeping costs once you no longer pay
-for the sort. The "two-thirds" in the exponent is where this project's name
+sequence. That `log^(2/3)` is what the bookkeeping costs once you no longer
+pay for the sort. The "two-thirds" in the exponent is where this project's name
 comes from. (The result keeps moving: in February 2026 four of the five authors
-sharpened the bound again, to `O(m √(log n · log log n))` on sparse graphs —
-[arXiv:2602.07868](https://arxiv.org/abs/2602.07868). This repository studies
+sharpened the bound again, to `O(m √(log n · log log n))` on sparse graphs;
+see [arXiv:2602.07868](https://arxiv.org/abs/2602.07868). This repository studies
 the original algorithm; the practical question below applies to any successor.)
 
 This repository implements that algorithm, checks it against the paper line by
@@ -44,7 +44,7 @@ barrier make anything *run* faster? The honest answer — measured, not asserted
 is **no, not at any size you can actually run.** The faithful implementation is
 26–128× slower than a good Dijkstra; the most aggressively engineered variant
 closes that to ~1.1–2×, but never crosses over. The asymptotic advantage is real
-and it does narrow with `n` roughly as `log^(2/3) n` vs `log n` predicts — it
+and it does narrow with `n` roughly as `log^(2/3) n` vs `log n` predicts. It
 just doesn't pay off until somewhere around `n ≈ 2^400000`, a graph too large
 to store even at one vertex per atom of the observable universe (roughly
 `2^266` of them). That gap between what the
@@ -53,7 +53,7 @@ the hardware delivers is the actual subject of this repo, documented honestly
 below and in [BENCHMARKS.md](BENCHMARKS.md).
 
 So the library ships **Dijkstra** as the thing you should use, and keeps the
-BMSSP engines as instrumented, verified research objects — the sharpest way to
+BMSSP engines as instrumented, verified research objects: the sharpest way to
 state precisely *where* the algorithm's constant factor lives.
 
 ## Install (from source)
@@ -117,7 +117,7 @@ predicts, but extrapolates to a crossover near `n ≈ 2^400000`; the
 maximally-engineered `bmssp-fast` is structurally a Dijkstra run carrying
 BMSSP's heavier labels, so its remaining ~1.1–2× gap is a constant factor,
 not a vanishing one. There is no practical size at which any BMSSP engine
-wins — `bmssp` and `bmssp-fast` are provided for research and verification.
+wins; `bmssp` and `bmssp-fast` are provided for research and verification.
 Full story, methodology, and the variant ladder: **BENCHMARKS.md** (final
 matrix and verdict), **VARIANTS.md** (the algorithm-level variant study),
 and **OPTIMIZATION.md** (the low-level pass that produced the shipping
@@ -183,7 +183,7 @@ The research record, in reading order:
 | `QUESTIONS.md` / `FAILCASE.md` | the four resolved paper-interpretation questions, and the worked failure case that motivated the settled-vertex filter |
 | `VARIANTS.md` | algorithm-level variant study (`src/variants/`) that produced `bmssp-fast`; ranks the variants and proves each delta correctness-preserving |
 | `OPTIMIZATION.md` | two low-level engineering passes that tightened `bmssp-fast` (2.13 s → 1.21 s at n=10⁶, then ~1.49× → ~1.24× of Dijkstra by same-process ratio, ~1.12× at 10⁷); distinct from the mainline pass in BENCHMARKS.md |
-| `BENCHMARKS.md` | final cross-implementation matrix and the honest verdict (Dijkstra wins everywhere; no crossover) — the authoritative wall-clock numbers |
+| `BENCHMARKS.md` | final cross-implementation matrix and the honest verdict (Dijkstra wins everywhere; no crossover); the authoritative wall-clock numbers |
 
 Numbers across these are consistent as of 2026-07-02; where a research-phase
 table (VARIANTS.md) and the final matrix (BENCHMARKS.md) differ for
